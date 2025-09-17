@@ -212,15 +212,7 @@ Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más det
 
 ## 👥 Autores
 
-- **Tu Nombre** - *Desarrollo inicial* - [@tu-usuario](https://github.com/tu-usuario)
+- **Juan Huamani** - *Desarrollo inicial* - [@juanhuamani](https://github.com/juanhuamani)
 
-## 🙏 Agradecimientos
-
-- [Laravel](https://laravel.com/) - Framework PHP
-- [React](https://reactjs.org/) - Biblioteca de UI
-- [Tailwind CSS](https://tailwindcss.com/) - Framework CSS
-- [Lucide](https://lucide.dev/) - Iconos
-
----
 
 ⭐ **¡Si te gusta este proyecto, no olvides darle una estrella!** ⭐
