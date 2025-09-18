@@ -59,6 +59,19 @@ To-Do-Complete-App/
 └── docker-compose.yml      # Configuración Docker
 ```
 
+## 📸 Capturas de Pantalla
+
+<div align="center">
+  <img src="docs/images/screenshot-4.png" alt="Vista principal de la aplicación" width="800"/>
+  <p><em>Vista principal del tablero Kanban con tareas organizadas</em></p>
+</div>
+
+<div align="center">
+  <img src="docs/images/screenshot-1.png" alt="Formulario de creación de tareas" width="800"/>
+  <p><em>Vista de la imagen lanzada en Docker</em></p>
+</div>
+
+
 ## 🚀 Instalación y Configuración
 
 ### Prerrequisitos
