@@ -35,6 +35,7 @@ Una aplicación moderna de gestión de tareas construida con **Laravel** (backen
 
 #### DevOps
 - **Docker & Docker Compose** - Containerización
+- **Kubernetes & Minikube** - Orquestación de contenedores
 - **ESLint** - Linting de código
 - **PHPUnit** - Testing del backend
 
@@ -56,7 +57,15 @@ To-Do-Complete-App/
 │   │   ├── services/       # Servicios API
 │   │   └── App.tsx         # Componente principal
 │   └── package.json        # Dependencias frontend
-└── docker-compose.yml      # Configuración Docker
+├── k8s/                   # Manifiestos Kubernetes
+│   ├── mysql-*.yaml       # Configuración MySQL
+│   ├── backend-*.yaml     # Configuración Backend
+│   ├── frontend-*.yaml    # Configuración Frontend
+│   └── ingress.yaml       # Configuración Ingress
+├── scripts/               # Scripts de despliegue
+│   ├── minikube-deploy.sh # Script de despliegue K8s
+│   └── dev-tools.sh       # Herramientas de desarrollo
+└── docker-compose.yml     # Configuración Docker
 ```
 
 ## 📸 Capturas de Pantalla
@@ -75,10 +84,17 @@ To-Do-Complete-App/
 ## 🚀 Instalación y Configuración
 
 ### Prerrequisitos
+
+#### Para Docker
 - **Docker** y **Docker Compose**
 - **Node.js 18+** (para desarrollo local)
 - **PHP 8.2+** (para desarrollo local)
 - **Composer** (para desarrollo local)
+
+#### Para Kubernetes
+- **Docker**
+- **Minikube**
+- **kubectl**
 
 ### Instalación con Docker (Recomendado)
 
@@ -106,6 +122,29 @@ To-Do-Complete-App/
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
    - Base de datos: localhost:3307
+
+### Instalación con Kubernetes (Minikube)
+
+1. **Inicia Minikube**
+   ```bash
+   minikube start
+   ```
+
+2. **Despliega la aplicación**
+   ```bash
+   bash scripts/minikube-deploy.sh
+   ```
+
+3. **Configura port-forward para desarrollo**
+   ```bash
+   bash scripts/dev-tools.sh start-ports
+   ```
+
+4. **Accede a la aplicación**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+
+> 📖 **Documentación completa de Kubernetes**: Ver [README-KUBERNETES.md](./README-KUBERNETES.md)
 
 ### Instalación para Desarrollo Local
 
