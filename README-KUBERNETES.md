@@ -40,14 +40,37 @@ Una aplicación completa de gestión de tareas desplegada en Kubernetes usando K
 
 ## 🚀 Despliegue Rápido
 
-### Con Kind (recomendado y usado en este repo)
+### Opción 1: Minikube (Recomendado para desarrollo)
+
+Prerrequisitos: Docker, Minikube, kubectl.
+
+1. **Inicia Minikube**
+   ```bash
+   minikube start
+   ```
+
+2. **Despliega la aplicación**
+   ```bash
+   bash scripts/minikube-deploy.sh
+   ```
+
+3. **Configura port-forward para desarrollo**
+   ```bash
+   bash scripts/dev-tools.sh start-ports
+   ```
+
+4. **Accede a la aplicación**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+
+### Opción 2: Kind (Alternativa ligera)
 
 Prerrequisitos: Docker, kind, kubectl, y Bash (Git Bash o WSL en Windows).
 
-1. Crear (o detectar) cluster Kind con 3 nodos llamado `kind-todo` y desplegar:
-```bash
-bash scripts/kind-deploy.sh
-```
+1. **Crear cluster Kind y desplegar**
+   ```bash
+   bash scripts/kind-deploy.sh
+   ```
 
 El script:
 - Construye imágenes locales y las carga en Kind
@@ -62,8 +85,23 @@ Acceso:
   - `kubectl port-forward service/frontend 3000:3000`
   - `kubectl port-forward service/backend 8000:8000`
 
-### Notas de entorno
-- Usa Kind con Docker Desktop; no se requiere Minikube para este flujo.
+### Comparación: Minikube vs Kind
+
+| Característica | Minikube | Kind |
+|---|---|---|
+| **Recursos** | Requiere VM | Usa Docker containers |
+| **Velocidad de inicio** | Más lento | Más rápido |
+| **Compatibilidad** | Muy alta | Alta |
+| **Tamaño** | ~2GB | ~500MB |
+| **Uso recomendado** | Desarrollo general | CI/CD, testing |
+| **Ingress** | Requiere tunnel | Ingress directo |
+| **Port-forward** | Necesario para desarrollo | Opcional |
+| **Recursos del sistema** | Alto | Bajo |
+
+### Recomendaciones de Uso
+
+- **Minikube**: Para desarrollo local, testing de aplicaciones complejas
+- **Kind**: Para CI/CD, testing rápido, desarrollo ligero
 
 ## 📁 Estructura de Archivos Kubernetes
 
