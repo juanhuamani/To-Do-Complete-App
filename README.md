@@ -93,8 +93,9 @@ To-Do-Complete-App/
 
 #### Para Kubernetes
 - **Docker**
-- **Minikube**
 - **kubectl**
+- **Minikube** (recomendado para desarrollo local)
+- **Kind** (alternativa ligera para desarrollo)
 
 ### Instalación con Docker (Recomendado)
 
@@ -123,7 +124,11 @@ To-Do-Complete-App/
    - Backend API: http://localhost:8000
    - Base de datos: localhost:3307
 
-### Instalación con Kubernetes (Minikube)
+### Instalación con Kubernetes
+
+#### Opción 1: Minikube (Recomendado)
+
+**Minikube** es ideal para desarrollo local y testing:
 
 1. **Inicia Minikube**
    ```bash
@@ -143,6 +148,46 @@ To-Do-Complete-App/
 4. **Accede a la aplicación**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
+
+#### Opción 2: Kind (Alternativa Ligera)
+
+**Kind** (Kubernetes in Docker) es más ligero y rápido:
+
+1. **Instala Kind**
+   ```bash
+   # En macOS
+   brew install kind
+   
+   # En Linux
+   curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+   chmod +x ./kind
+   sudo mv ./kind /usr/local/bin/kind
+   ```
+
+2. **Crea cluster Kind**
+   ```bash
+   kind create cluster --name todo-app
+   ```
+
+3. **Configura kubectl**
+   ```bash
+   kubectl cluster-info --context kind-todo-app
+   ```
+
+4. **Despliega la aplicación**
+   ```bash
+   bash scripts/minikube-deploy.sh
+   ```
+
+#### Comparación: Minikube vs Kind
+
+| Característica | Minikube | Kind |
+|---|---|---|
+| **Recursos** | Requiere VM | Usa Docker containers |
+| **Velocidad de inicio** | Más lento | Más rápido |
+| **Compatibilidad** | Muy alta | Alta |
+| **Tamaño** | ~2GB | ~500MB |
+| **Uso recomendado** | Desarrollo general | CI/CD, testing |
 
 > 📖 **Documentación completa de Kubernetes**: Ver [README-KUBERNETES.md](./README-KUBERNETES.md)
 
