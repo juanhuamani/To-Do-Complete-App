@@ -1,6 +1,6 @@
-# To-Do Complete App - Kubernetes con Minikube
+# To-Do Complete App - Kubernetes con Kind (Docker Desktop)
 
-Una aplicación completa de gestión de tareas desplegada en Kubernetes usando Minikube.
+Una aplicación completa de gestión de tareas desplegada en Kubernetes usando Kind sobre Docker Desktop.
 
 ## 🏗️ Arquitectura
 
@@ -40,7 +40,7 @@ Una aplicación completa de gestión de tareas desplegada en Kubernetes usando M
 
 ## 🚀 Despliegue Rápido
 
-### Con Kind (recomendado para tu entorno actual)
+### Con Kind (recomendado y usado en este repo)
 
 Prerrequisitos: Docker, kind, kubectl, y Bash (Git Bash o WSL en Windows).
 
@@ -56,37 +56,14 @@ El script:
 - Aplica manifiestos y espera readiness
 
 Acceso:
-- Frontend: `http://localhost` vía Ingress, o `kubectl port-forward service/frontend 3000:3000`
-- Backend API: `http://localhost/api`, o `kubectl port-forward service/backend 8000:8000`
+- Frontend: `http://localhost` (Ingress de nginx en Kind)
+- Backend API: `http://localhost/api`
+- Alternativa con port-forward:
+  - `kubectl port-forward service/frontend 3000:3000`
+  - `kubectl port-forward service/backend 8000:8000`
 
-### Prerrequisitos
-- Docker
-- Minikube
-- kubectl
-
-### 1. Iniciar Minikube
-```bash
-minikube start
-```
-
-### 2. Desplegar la Aplicación
-```bash
-# Ejecutar el script de despliegue
-bash scripts/minikube-deploy.sh
-```
-
-### 3. Configurar Port-Forward
-```bash
-# Frontend
-kubectl port-forward service/frontend 3000:3000 &
-
-# Backend
-kubectl port-forward service/backend 8000:8000 &
-```
-
-### 4. Acceder a la Aplicación
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000/api
+### Notas de entorno
+- Usa Kind con Docker Desktop; no se requiere Minikube para este flujo.
 
 ## 📁 Estructura de Archivos Kubernetes
 
@@ -127,8 +104,9 @@ kubectl get services
 # Ver ingress
 kubectl get ingress
 
-# Obtener IP de Minikube
-minikube ip
+# Contextos
+kubectl config get-contexts
+kubectl config use-context kind-kind-todo
 ```
 
 ### Port-Forward
@@ -146,9 +124,12 @@ kubectl port-forward service/mysql 3306:3306
 ### Desarrollo
 ```bash
 # Reconstruir imágenes
-eval "$(minikube docker-env)"
 docker build -t todo-complete-backend:local ./backend
 docker build -t todo-complete-frontend:local ./frontend
+
+# Cargar imágenes en Kind
+kind load docker-image todo-complete-backend:local --name kind-todo
+kind load docker-image todo-complete-frontend:local --name kind-todo
 
 # Aplicar cambios
 kubectl rollout restart deployment/backend
@@ -238,19 +219,15 @@ kubectl delete ingress --all
 pkill -f "kubectl port-forward"
 ```
 
-### Detener Minikube
+### Eliminar cluster Kind
 ```bash
-minikube stop
-# o
-minikube delete
+kind delete cluster --name kind-todo
 ```
 
 ## 📊 Monitoreo
 
-### Dashboard de Minikube
-```bash
-minikube dashboard
-```
+### Dashboard / herramientas
+Sugeridas: k9s (`k9s -A --context kind-kind-todo`) o Lens.
 
 ### Métricas
 ```bash
@@ -276,11 +253,11 @@ Para mayor seguridad, se pueden implementar Network Policies para restringir el 
 ## 📝 Notas de Desarrollo
 
 ### Variables de Entorno
-El backend utiliza las siguientes variables de entorno:
+El backend utiliza las siguientes variables de entorno (inyectadas por ConfigMap/Secret en Kubernetes):
 - `APP_ENV`: local
 - `APP_DEBUG`: true
 - `DB_CONNECTION`: mysql
-- `DB_HOST`: mysql
+- `DB_HOST`: mysql (evita tener un `.env` dentro de la imagen con `DB_HOST=db`)
 - `DB_PORT`: 3306
 - `DB_DATABASE`: mydb
 - `DB_USERNAME`: user (desde Secret)
