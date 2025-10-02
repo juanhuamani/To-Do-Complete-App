@@ -40,6 +40,25 @@ Una aplicación completa de gestión de tareas desplegada en Kubernetes usando M
 
 ## 🚀 Despliegue Rápido
 
+### Con Kind (recomendado para tu entorno actual)
+
+Prerrequisitos: Docker, kind, kubectl, y Bash (Git Bash o WSL en Windows).
+
+1. Crear (o detectar) cluster Kind con 3 nodos llamado `kind-todo` y desplegar:
+```bash
+bash scripts/kind-deploy.sh
+```
+
+El script:
+- Construye imágenes locales y las carga en Kind
+- Instala `ingress-nginx` para Kind
+- Configura almacenamiento dinámico (local-path) y crea `StorageClass` `standard`
+- Aplica manifiestos y espera readiness
+
+Acceso:
+- Frontend: `http://localhost` vía Ingress, o `kubectl port-forward service/frontend 3000:3000`
+- Backend API: `http://localhost/api`, o `kubectl port-forward service/backend 8000:8000`
+
 ### Prerrequisitos
 - Docker
 - Minikube
