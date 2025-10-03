@@ -216,6 +216,15 @@ EOF
   print_success "Almacenamiento dinámico configurado"
 }
 
+install_metrics_server() {
+  print_status "Instalando metrics-server para habilitar HPA..."
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  print_status "Esperando a que metrics-server esté disponible..."
+  # Esperar a que el deployment esté listo (normalmente en kube-system)
+  kubectl -n kube-system wait --for=condition=available deploy/metrics-server --timeout=180s || true
+  print_success "metrics-server instalado"
+}
+
 apply_manifests() {
   print_status "Aplicando manifiestos de Kubernetes..."
   ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -233,6 +242,17 @@ apply_manifests() {
 
   kubectl apply -f "$ROOT_DIR/k8s/ingress.yaml"
   print_success "Manifiestos aplicados"
+}
+
+apply_hpa() {
+  print_status "Aplicando Horizontal Pod Autoscaler (HPA)..."
+  ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+  if [ -f "$ROOT_DIR/k8s/hpa.yaml" ]; then
+    kubectl apply -f "$ROOT_DIR/k8s/hpa.yaml"
+    print_success "HPA aplicado"
+  else
+    print_warning "No se encontró hpa.yaml, omitiendo HPA"
+  fi
 }
 
 wait_for_ready() {
@@ -281,7 +301,9 @@ main() {
   load_images_into_kind
   install_ingress_nginx
   install_storage_class
+  install_metrics_server
   apply_manifests
+  apply_hpa
   wait_for_ready
   seed_database
   show_access_info
