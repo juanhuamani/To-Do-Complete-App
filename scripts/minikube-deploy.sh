@@ -114,6 +114,10 @@ apply_manifests() {
     minikube addons enable ingress >/dev/null 2>&1 || true
     kubectl apply -f "$ROOT_DIR/k8s/ingress.yaml"
     
+    # HPA (Horizontal Pod Autoscaler)
+    print_status "Configurando escalamiento automático..."
+    kubectl apply -f "$ROOT_DIR/k8s/hpa.yaml"
+    
     print_success "Manifiestos aplicados correctamente"
 }
 

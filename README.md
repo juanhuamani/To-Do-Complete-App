@@ -35,7 +35,8 @@ Una aplicación moderna de gestión de tareas construida con **Laravel** (backen
 
 #### DevOps
 - **Docker & Docker Compose** - Containerización
-- **Kubernetes & Minikube** - Orquestación de contenedores
+- **Kubernetes & Minikube/Kind** - Orquestación de contenedores
+- **HPA (Horizontal Pod Autoscaler)** - Escalamiento automático
 - **ESLint** - Linting de código
 - **PHPUnit** - Testing del backend
 
@@ -148,6 +149,16 @@ To-Do-Complete-App/
 4. **Accede a la aplicación**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
+
+5. **Gestiona el escalamiento automático**
+   ```bash
+   # Ver estado del HPA
+   bash scripts/dev-tools.sh hpa-status
+   
+   # Escalar manualmente
+   bash scripts/dev-tools.sh scale-backend
+   bash scripts/dev-tools.sh scale-frontend
+   ```
 
 #### Opción 2: Kind (Alternativa Ligera)
 

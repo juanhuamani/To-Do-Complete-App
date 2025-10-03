@@ -116,10 +116,57 @@ k8s/
 ├── backend-service.yaml       # Servicio del backend
 ├── frontend-deployment.yaml   # Deployment del frontend
 ├── frontend-service.yaml      # Servicio del frontend
-└── ingress.yaml              # Ingress para enrutamiento
+├── ingress.yaml              # Ingress para enrutamiento
+└── hpa.yaml                 # Escalamiento automático (HPA)
 ```
 
 ## 🔧 Comandos Útiles
+
+### Escalamiento Horizontal (HPA)
+
+La aplicación incluye **Horizontal Pod Autoscaler (HPA)** para escalamiento automático basado en métricas de CPU y memoria.
+
+#### Configuración del HPA
+
+**Backend:**
+- **Min replicas**: 1
+- **Max replicas**: 10
+- **CPU target**: 70%
+- **Memory target**: 80%
+
+**Frontend:**
+- **Min replicas**: 1
+- **Max replicas**: 5
+- **CPU target**: 70%
+- **Memory target**: 80%
+
+#### Comportamiento de Escalamiento
+
+**Escalamiento hacia arriba:**
+- **Backend**: Máximo 100% o 4 pods por 15 segundos
+- **Frontend**: Máximo 50% o 2 pods por 15 segundos
+
+**Escalamiento hacia abajo:**
+- **Ambos**: Máximo 10% por 60 segundos
+- **Ventana de estabilización**: 300 segundos
+
+#### Comandos HPA
+
+```bash
+# Ver estado del HPA
+kubectl get hpa
+
+# Ver descripción detallada
+kubectl describe hpa backend-hpa
+kubectl describe hpa frontend-hpa
+
+# Ver métricas de recursos
+kubectl top pods
+kubectl top nodes
+
+# Escalar manualmente (desactiva HPA temporalmente)
+kubectl scale deployment backend --replicas=3
+```
 
 ### Gestión de Pods
 ```bash
@@ -178,6 +225,24 @@ bash scripts/dev-tools.sh seed
 
 # Reiniciar base de datos completamente
 bash scripts/dev-tools.sh reset-db
+```
+
+### Escalamiento
+```bash
+# Escalar manualmente
+kubectl scale deployment backend --replicas=3
+kubectl scale deployment frontend --replicas=2
+
+# Usar herramientas de desarrollo
+bash scripts/dev-tools.sh scale-backend
+bash scripts/dev-tools.sh scale-frontend
+
+# Ver estado del escalamiento automático
+bash scripts/dev-tools.sh hpa-status
+
+# Ver métricas de recursos
+kubectl top pods
+kubectl top nodes
 ```
 
 ## 🗄️ Base de Datos

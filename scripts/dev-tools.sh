@@ -44,6 +44,9 @@ show_help() {
     echo "  shell-mysql    Conectar a MySQL"
     echo "  seed           Poblar base de datos con datos de ejemplo"
     echo "  reset-db       Reiniciar base de datos (migrate + seed)"
+    echo "  scale-backend  Escalar backend manualmente"
+    echo "  scale-frontend Escalar frontend manualmente"
+    echo "  hpa-status     Ver estado del escalamiento automático"
     echo "  clean          Limpiar todos los recursos"
     echo "  help           Mostrar esta ayuda"
     echo ""
@@ -237,6 +240,57 @@ reset_database() {
     fi
 }
 
+# Función para escalar backend manualmente
+scale_backend() {
+    print_status "Escalando backend..."
+    read -p "¿Cuántas réplicas quieres? (1-10): " replicas
+    
+    if [[ $replicas =~ ^[1-9]$|^10$ ]]; then
+        kubectl scale deployment backend --replicas=$replicas
+        print_success "Backend escalado a $replicas réplicas"
+        
+        print_status "Esperando a que los pods estén listos..."
+        kubectl rollout status deployment/backend
+    else
+        print_error "Número inválido. Usa un número entre 1 y 10."
+    fi
+}
+
+# Función para escalar frontend manualmente
+scale_frontend() {
+    print_status "Escalando frontend..."
+    read -p "¿Cuántas réplicas quieres? (1-5): " replicas
+    
+    if [[ $replicas =~ ^[1-5]$ ]]; then
+        kubectl scale deployment frontend --replicas=$replicas
+        print_success "Frontend escalado a $replicas réplicas"
+        
+        print_status "Esperando a que los pods estén listos..."
+        kubectl rollout status deployment/frontend
+    else
+        print_error "Número inválido. Usa un número entre 1 y 5."
+    fi
+}
+
+# Función para ver estado del HPA
+hpa_status() {
+    print_status "Estado del escalamiento automático (HPA):"
+    echo ""
+    
+    echo -e "${BLUE}Backend HPA:${NC}"
+    kubectl get hpa backend-hpa -o wide
+    echo ""
+    
+    echo -e "${BLUE}Frontend HPA:${NC}"
+    kubectl get hpa frontend-hpa -o wide
+    echo ""
+    
+    echo -e "${BLUE}Descripción detallada:${NC}"
+    kubectl describe hpa backend-hpa
+    echo ""
+    kubectl describe hpa frontend-hpa
+}
+
 # Función principal
 main() {
     case "${1:-help}" in
@@ -293,6 +347,15 @@ main() {
             ;;
         "reset-db")
             reset_database
+            ;;
+        "scale-backend")
+            scale_backend
+            ;;
+        "scale-frontend")
+            scale_frontend
+            ;;
+        "hpa-status")
+            hpa_status
             ;;
         "help"|*)
             show_help
