@@ -1,0 +1,24 @@
+# Pulumi
+pulumi/node_modules/
+pulumi/bin/
+pulumi/*.log
+pulumi/Pulumi.*.yaml
+!pulumi/Pulumi.dev.yaml.example
+
+# K8s generated
+k8s-aws-processed/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+

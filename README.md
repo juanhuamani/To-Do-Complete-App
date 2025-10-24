@@ -1,326 +1,270 @@
-# 📋 To-Do Complete App
+# 🚀 To-Do App - Autoscaling en Google Cloud Platform
 
-Una aplicación moderna de gestión de tareas construida con **Laravel** (backend) y **React + TypeScript** (frontend), diseñada para ofrecer una experiencia de usuario fluida y eficiente.
+Una aplicación completa de gestión de tareas con **frontend en React**, **backend en Laravel**, y **autoscaling automático** en Google Cloud Platform usando Pulumi y Kubernetes.
 
-## ✨ Características
+## 🎯 Características Principales
 
-### 🎯 Funcionalidades Principales
-- **Tablero Kanban Interactivo**: Organiza tus tareas en columnas (Pendientes, En Progreso, Completadas, Archivadas)
-- **Drag & Drop**: Arrastra y suelta tareas entre columnas con animaciones fluidas
-- **Gestión Completa de Tareas**: 
-  - Título y descripción detallada
-  - Prioridades (Baja, Media, Alta)
-  - Asignación de responsables
-  - Fechas de vencimiento
-  - Sistema de etiquetas
-- **Interfaz Moderna**: Diseño responsive con Tailwind CSS
-- **API RESTful**: Backend robusto con Laravel Sanctum para autenticación
+✅ **Frontend moderno** - React + TypeScript + Vite  
+✅ **Backend robusto** - Laravel + PHP 8.2 + API RESTful  
+✅ **Base de datos** - Google Cloud SQL MySQL  
+✅ **Containerización** - Docker + Artifact Registry  
+✅ **Orquestación** - Google Kubernetes Engine (GKE)  
+✅ **Autoscaling** - HPA + Cluster Autoscaler  
+✅ **IaC** - Pulumi (open source, no Terraform)  
+✅ **GRATIS** - Usando $300 de crédito de Google Cloud  
 
-### 🚀 Tecnologías Utilizadas
+## 🌐 Acceso a la Aplicación
 
-#### Backend
-- **Laravel 12** - Framework PHP moderno
-- **Laravel Sanctum** - Autenticación API
-- **MySQL 8** - Base de datos relacional
-- **PHP 8.2+** - Lenguaje de programación
+**URL:** http://34.144.246.195
 
-#### Frontend
-- **React 19** - Biblioteca de interfaz de usuario
-- **TypeScript** - Tipado estático para JavaScript
-- **Tailwind CSS 4** - Framework de estilos utilitarios
-- **React Router DOM** - Enrutamiento del lado del cliente
-- **@hello-pangea/dnd** - Drag and drop para React
-- **Lucide React** - Iconos modernos y consistentes
-- **Vite** - Herramienta de construcción rápida
+- **Frontend:** React con Vite
+- **Backend:** Laravel con PHP 8.2
+- **Base de datos:** Google Cloud SQL MySQL
+- **Registro de contenedores:** Google Artifact Registry
 
-#### DevOps
-- **Docker & Docker Compose** - Containerización
-- **Kubernetes & Minikube/Kind** - Orquestación de contenedores
-- **HPA (Horizontal Pod Autoscaler)** - Escalamiento automático
-- **ESLint** - Linting de código
-- **PHPUnit** - Testing del backend
+## 🏗️ Arquitectura Desplegada
 
-## 🏗️ Arquitectura del Proyecto
+### Infraestructura
+- **Cluster GKE:** `todo-cluster-955a689`
+- **Región:** `us-central1-a`
+- **Máquinas:** `e2-standard-2`
+- **Nodos:** 3 (mínimo 1, máximo 3 con autoscaling)
 
-```
-To-Do-Complete-App/
-├── backend/                 # API Laravel
-│   ├── app/
-│   │   ├── Http/Controllers/ # Controladores de la API
-│   │   └── Models/          # Modelos Eloquent
-│   ├── database/
-│   │   ├── migrations/      # Migraciones de BD
-│   │   └── seeders/         # Datos de prueba
-│   └── routes/api.php       # Rutas de la API
-├── frontend/               # Aplicación React
-│   ├── src/
-│   │   ├── components/     # Componentes React
-│   │   ├── services/       # Servicios API
-│   │   └── App.tsx         # Componente principal
-│   └── package.json        # Dependencias frontend
-├── k8s/                   # Manifiestos Kubernetes
-│   ├── mysql-*.yaml       # Configuración MySQL
-│   ├── backend-*.yaml     # Configuración Backend
-│   ├── frontend-*.yaml    # Configuración Frontend
-│   └── ingress.yaml       # Configuración Ingress
-├── scripts/               # Scripts de despliegue
-│   ├── minikube-deploy.sh # Script de despliegue K8s
-│   └── dev-tools.sh       # Herramientas de desarrollo
-└── docker-compose.yml     # Configuración Docker
-```
+### Servicios Kubernetes
+- **Namespace:** `todo`
+- **Backend:** 3 réplicas con autoscaling (HPA)
+- **Frontend:** 3 réplicas con autoscaling (HPA)
+- **Ingress:** Load Balancer con IP estática
+- **HPA:** Horizontal Pod Autoscaler configurado
 
-## 📸 Capturas de Pantalla
+## 🚀 Despliegue Automatizado
 
-<div align="center">
-  <img src="docs/images/screenshot-4.png" alt="Vista principal de la aplicación" width="800"/>
-  <p><em>Vista principal del tablero Kanban con tareas organizadas</em></p>
-</div>
+### Opción 1: Script Automático (Recomendado)
 
-<div align="center">
-  <img src="docs/images/screenshot-1.png" alt="Formulario de creación de tareas" width="800"/>
-  <p><em>Vista de la imagen lanzada en Docker</em></p>
-</div>
-
-
-## 🚀 Instalación y Configuración
-
-### Prerrequisitos
-
-#### Para Docker
-- **Docker** y **Docker Compose**
-- **Node.js 18+** (para desarrollo local)
-- **PHP 8.2+** (para desarrollo local)
-- **Composer** (para desarrollo local)
-
-#### Para Kubernetes
-- **Docker**
-- **kubectl**
-- **Minikube** (recomendado para desarrollo local)
-- **Kind** (alternativa ligera para desarrollo)
-
-### Instalación con Docker (Recomendado)
-
-1. **Clona el repositorio**
-   ```bash
-   git clone https://github.com/tu-usuario/To-Do-Complete-App.git
-   cd To-Do-Complete-App
-   ```
-
-2. **Inicia los servicios con Docker Compose**
-   ```bash
-   docker-compose up -d
-   ```
-
-3. **Configura la base de datos**
-   ```bash
-   # Ejecuta las migraciones
-   docker-compose exec backend php artisan migrate
-   
-   # Opcional: Carga datos de prueba
-   docker-compose exec backend php artisan db:seed
-   ```
-
-4. **Accede a la aplicación**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000
-   - Base de datos: localhost:3307
-
-### Instalación con Kubernetes
-
-#### Opción 1: Minikube (Recomendado)
-
-**Minikube** es ideal para desarrollo local y testing:
-
-1. **Inicia Minikube**
-   ```bash
-   minikube start
-   ```
-
-2. **Despliega la aplicación**
-   ```bash
-   bash scripts/minikube-deploy.sh
-   ```
-
-3. **Configura port-forward para desarrollo**
-   ```bash
-   bash scripts/dev-tools.sh start-ports
-   ```
-
-4. **Accede a la aplicación**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000
-
-5. **Gestiona el escalamiento automático**
-   ```bash
-   # Ver estado del HPA
-   bash scripts/dev-tools.sh hpa-status
-   
-   # Escalar manualmente
-   bash scripts/dev-tools.sh scale-backend
-   bash scripts/dev-tools.sh scale-frontend
-   ```
-
-#### Opción 2: Kind (Alternativa Ligera)
-
-**Kind** (Kubernetes in Docker) es más ligero y rápido:
-
-1. **Instala Kind**
-   ```bash
-   # En macOS
-   brew install kind
-   
-   # En Linux
-   curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
-   chmod +x ./kind
-   sudo mv ./kind /usr/local/bin/kind
-   ```
-
-2. **Crea cluster Kind**
-   ```bash
-   kind create cluster --name todo-app
-   ```
-
-3. **Configura kubectl**
-   ```bash
-   kubectl cluster-info --context kind-todo-app
-   ```
-
-4. **Despliega la aplicación**
-   ```bash
-   bash scripts/minikube-deploy.sh
-   ```
-
-#### Comparación: Minikube vs Kind
-
-| Característica | Minikube | Kind |
-|---|---|---|
-| **Recursos** | Requiere VM | Usa Docker containers |
-| **Velocidad de inicio** | Más lento | Más rápido |
-| **Compatibilidad** | Muy alta | Alta |
-| **Tamaño** | ~2GB | ~500MB |
-| **Uso recomendado** | Desarrollo general | CI/CD, testing |
-
-> 📖 **Documentación completa de Kubernetes**: Ver [README-KUBERNETES.md](./README-KUBERNETES.md)
-
-### Instalación para Desarrollo Local
-
-#### Backend (Laravel)
+#### Para Linux/Mac:
 ```bash
-cd backend
-
-# Instala dependencias PHP
-composer install
-
-# Configura el entorno
-cp .env.example .env
-php artisan key:generate
-
-# Configura la base de datos en .env
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=todo_app
-DB_USERNAME=tu_usuario
-DB_PASSWORD=tu_password
-
-# Ejecuta migraciones
-php artisan migrate
-
-# Inicia el servidor de desarrollo
-php artisan serve
+./scripts/deploy-complete.sh
 ```
 
-#### Frontend (React)
-```bash
-cd frontend
+#### Para Windows PowerShell:
+```powershell
+.\scripts\deploy-complete.ps1
+```
 
-# Instala dependencias
+### Opción 2: Manual
+
+```bash
+# 1. Configurar Pulumi
+cd pulumi-gcp
 npm install
+pulumi stack init dev
+pulumi config set gcpProject TU_PROJECT_ID
+pulumi config set --secret dbPassword "MiPasswordSeguro123!"
+pulumi up --yes
 
-# Inicia el servidor de desarrollo
-npm run dev
+# 2. Configurar kubectl
+gcloud container clusters get-credentials CLUSTER_NAME --zone us-central1-a
+
+# 3. Desplegar aplicación
+kubectl apply -f k8s-gcp/
 ```
 
-## 📖 Uso de la API
+## 🧪 Pruebas de Autoscaling
 
-### Endpoints Principales
+### Script Automático
 
-#### Tareas
-```http
-GET    /api/tasks              # Obtener todas las tareas
-POST   /api/tasks              # Crear nueva tarea
-GET    /api/tasks/{id}         # Obtener tarea específica
-PUT    /api/tasks/{id}         # Actualizar tarea
-DELETE /api/tasks/{id}         # Eliminar tarea
-POST   /api/tasks/reorder      # Reordenar tareas
-GET    /api/tasks/status/{status} # Filtrar por estado
-```
-
-#### Estructura de Tarea
-```json
-{
-  "id": 1,
-  "content": "Título de la tarea",
-  "description": "Descripción detallada",
-  "status": "todo|in-progress|completed|archived",
-  "priority": "low|medium|high",
-  "assignee": "Nombre del responsable",
-  "due_date": "2024-12-31",
-  "tags": ["etiqueta1", "etiqueta2"],
-  "order": 0,
-  "created_at": "2024-01-01T00:00:00.000000Z",
-  "updated_at": "2024-01-01T00:00:00.000000Z"
-}
-```
-
-## 🧪 Testing
-
-### Backend
+#### Para Linux/Mac:
 ```bash
-cd backend
-php artisan test
+./scripts/load-test-gcp.sh
 ```
 
-### Frontend
+#### Para Windows PowerShell:
+```powershell
+.\scripts\load-test-gcp.ps1
+```
+
+### Manual
+
 ```bash
-cd frontend
-npm run lint
+# Instalar herramienta de carga
+go install github.com/rakyll/hey@latest
+
+# Ejecutar prueba de carga
+hey -n 1000 -c 15 -t 60 http://34.144.246.195/api/tasks
+
+# Monitorear autoscaling
+kubectl get hpa -n todo -w
+kubectl get pods -n todo -w
 ```
 
-## 🎨 Personalización
+## 📋 Prerrequisitos
 
-### Temas y Estilos
-La aplicación utiliza Tailwind CSS para el diseño. Puedes personalizar los colores y estilos modificando:
-- `frontend/src/index.css` - Estilos globales
-- `frontend/tailwind.config.js` - Configuración de Tailwind
+### Herramientas Necesarias
+- **Google Cloud SDK** - [Instalar](https://cloud.google.com/sdk/docs/install)
+- **Pulumi** - [Instalar](https://www.pulumi.com/docs/get-started/install/)
+- **kubectl** - [Instalar](https://kubernetes.io/docs/tasks/tools/)
+- **Docker** - [Instalar](https://docs.docker.com/get-docker/)
+- **Node.js** - [Instalar](https://nodejs.org/)
 
-### Estados de Tareas
-Los estados disponibles son:
-- `todo` - Pendientes (azul)
-- `in-progress` - En Progreso (amarillo)
-- `completed` - Completadas (verde)
-- `archived` - Archivadas (púrpura)
+### Cuenta de Google Cloud
+- Cuenta de Google Cloud con $300 de crédito gratuito
+- Proyecto de GCP creado
 
-## 🤝 Contribución
+## 📁 Estructura del Proyecto
 
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
+```
+To-Do App/
+├── frontend/                 # React + TypeScript + Vite
+├── backend/                  # Laravel + PHP 8.2
+├── k8s-gcp/                  # Manifiestos de Kubernetes para GCP
+│   ├── namespace.yaml
+│   ├── backend-deployment.yaml
+│   ├── frontend-deployment.yaml
+│   ├── backend-service.yaml
+│   ├── frontend-service.yaml
+│   ├── hpa.yaml             # Horizontal Pod Autoscaler
+│   ├── ingress.yaml         # Ingress con IP estática
+│   ├── backend-configmap.yaml
+│   ├── frontend-configmap.yaml
+│   ├── mysql-secret.yaml
+│   ├── docker-registry-secret.yaml
+│   ├── apply-all.sh         # Script de despliegue (Linux/Mac)
+│   ├── apply-all.ps1        # Script de despliegue (Windows)
+│   └── README.md            # Documentación de Kubernetes
+├── pulumi-gcp/              # Infraestructura como Código
+│   ├── index.ts             # Configuración de GCP
+│   ├── package.json
+│   └── Pulumi.dev.yaml
+├── scripts/                 # Scripts de automatización
+│   ├── deploy-complete.sh   # Despliegue completo (Linux/Mac)
+│   ├── deploy-complete.ps1  # Despliegue completo (Windows)
+│   ├── load-test-gcp.sh     # Pruebas de carga (Linux/Mac)
+│   └── load-test-gcp.ps1    # Pruebas de carga (Windows)
+└── README.md               # Este archivo
+```
 
-### Estándares de Código
-- **PHP**: Sigue PSR-12 y usa Laravel Pint
-- **TypeScript**: Usa ESLint y Prettier
-- **Commits**: Usa Conventional Commits
+## 🎯 Autoscaling Configurado
 
-## 📝 Licencia
+### HPA (Horizontal Pod Autoscaler)
+- **Backend:** 3-8 pods (CPU 50%, Memoria 60%)
+- **Frontend:** 3-5 pods (CPU 50%, Memoria 60%)
+- **Escalado suave:** Ventana de estabilización configurada
 
-Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
+### GKE Cluster Autoscaler
+- **Nodos:** 1-3 nodos automáticamente
+- **Máquinas:** e2-small (optimizado para costo)
+- **Escalado automático** según demanda
 
-## 👥 Autores
+## 💰 Costos y Créditos
 
-- **Juan Huamani** - *Desarrollo inicial* - [@juanhuamani](https://github.com/juanhuamani)
+### Estimación de Costos
+- **Cluster GKE:** ~$0.10/hora (1-3 nodos)
+- **Cloud SQL:** ~$0.02/hora
+- **Artifact Registry:** ~$0.01/hora
+- **Load Balancer:** ~$0.025/hora
 
+**Total estimado:** ~$0.15/hora (~$3.60/día)
 
-⭐ **¡Si te gusta este proyecto, no olvides darle una estrella!** ⭐
+### Con $300 de crédito
+- **Duración estimada:** ~83 días continuos
+- **Para demos:** Semanas de uso intermitente
+
+## 🔧 Comandos Útiles
+
+### Monitoreo
+```bash
+# Ver estado de la aplicación
+kubectl get pods -n todo
+kubectl get hpa -n todo
+kubectl get ingress -n todo
+
+# Ver logs
+kubectl logs -f deployment/backend -n todo
+kubectl logs -f deployment/frontend -n todo
+
+# Ver métricas
+kubectl top nodes
+kubectl top pods -n todo
+```
+
+### Troubleshooting
+```bash
+# Ver detalles de pods
+kubectl describe pod POD_NAME -n todo
+
+# Ver eventos
+kubectl get events -n todo --sort-by='.lastTimestamp'
+
+# Reiniciar deployments
+kubectl rollout restart deployment/backend -n todo
+kubectl rollout restart deployment/frontend -n todo
+```
+
+## 🧹 Limpieza
+
+### Eliminar Todos los Recursos
+```bash
+cd pulumi-gcp
+pulumi destroy
+```
+
+### Eliminar Solo la Aplicación
+```bash
+kubectl delete namespace todo
+```
+
+## 🎉 Demostración de Autoscaling
+
+### Lo que Demuestra
+1. **Escalado automático** de pods según la carga
+2. **Optimización de recursos** y costos
+3. **Alta disponibilidad** y resistencia
+4. **Gestión automática** de la carga
+5. **Infraestructura como código** con Pulumi
+
+### Beneficios Observados
+- ✅ **Escalado automático** según la demanda
+- ✅ **Optimización de recursos** y costos
+- ✅ **Alta disponibilidad** y resistencia
+- ✅ **Gestión automática** de la carga
+- ✅ **Infraestructura reproducible** con IaC
+
+## 📊 Métricas de Rendimiento
+
+### Antes del Autoscaling
+- **Pods:** 2 backend, 2 frontend
+- **Recursos:** Fijos, no escalables
+
+### Durante la Carga
+- **Pods:** Escalan automáticamente a 3-8 pods
+- **CPU:** Optimización automática
+- **Memoria:** Gestión inteligente de recursos
+
+### Después de la Carga
+- **Pods:** Reducción automática a niveles óptimos
+- **Costos:** Minimización automática
+- **Rendimiento:** Mantenimiento de la calidad de servicio
+
+## 🔗 Enlaces Útiles
+
+- **Aplicación:** http://34.144.246.195
+- **API:** http://34.144.246.195/api/tasks
+- **Health Check:** http://34.144.246.195/api/hello
+- **Console GCP:** https://console.cloud.google.com/
+- **Billing:** https://console.cloud.google.com/billing
+
+## 🎯 Objetivos Cumplidos
+
+- ✅ **Herramienta IaC:** Pulumi (open source, no Terraform)
+- ✅ **Proveedor de nube:** Google Cloud Platform
+- ✅ **Autoscaling:** HPA configurado y funcionando
+- ✅ **Aplicación completa:** Frontend + Backend + Base de datos
+- ✅ **Gratuito:** Usando créditos de $300 de GCP
+- ✅ **Demostrable:** Aplicación accesible públicamente
+- ✅ **Automatizado:** Scripts de despliegue y pruebas
+
+---
+
+**¡La aplicación está lista para demostrar el autoscaling en GCP! 🎉**
+
+**Tu crédito de $300 es suficiente para correr esto por semanas. ¡Disfruta!**

@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
+  namespace: todo
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: frontend
@@ -12,10 +13,12 @@ spec:
       labels:
         app: frontend
     spec:
+      imagePullSecrets:
+        - name: gcp-registry-secret
       containers:
         - name: frontend
-          image: todo-complete-frontend:local
-          imagePullPolicy: IfNotPresent
+          image: us-central1-docker.pkg.dev/mycloud-jhuamaniv/todo/frontend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
           resources:
@@ -37,4 +40,7 @@ spec:
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
+          envFrom:
+            - configMapRef:
+                name: frontend-config
 

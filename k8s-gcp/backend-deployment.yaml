@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
+  namespace: todo
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: backend
@@ -12,32 +13,12 @@ spec:
       labels:
         app: backend
     spec:
-      initContainers:
-        - name: wait-for-mysql
-          image: busybox:1.35
-          command: ['sh', '-c', 'until nc -z mysql 3306; do echo waiting for mysql; sleep 2; done;']
-        - name: run-migrations
-          image: todo-complete-backend:local
-          imagePullPolicy: IfNotPresent
-          command: ['php', 'artisan', 'migrate', '--force']
-          envFrom:
-            - configMapRef:
-                name: backend-config
-          env:
-            - name: DB_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: mysql-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: mysql-password
+      imagePullSecrets:
+        - name: gcp-registry-secret
       containers:
         - name: backend
-          image: todo-complete-backend:local
-          imagePullPolicy: IfNotPresent
+          image: us-central1-docker.pkg.dev/mycloud-jhuamaniv/todo/backend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           resources:
@@ -61,13 +42,20 @@ spec:
                 secretKeyRef:
                   name: mysql-secret
                   key: mysql-password
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-host
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/hello
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 5
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/hello
               port: 8000
             initialDelaySeconds: 20
             periodSeconds: 10

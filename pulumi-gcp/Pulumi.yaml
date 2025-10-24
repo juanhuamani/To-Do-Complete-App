@@ -1,0 +1,4 @@
+name: todo
+runtime: nodejs
+description: To-Do App desplegada en Google Cloud GKE con autoscaling usando Pulumi (GRATIS con crédito de $300)
+
