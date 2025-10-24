@@ -5,6 +5,10 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+
+ARG VITE_API_URL=http://34.144.246.195/api
+ENV VITE_API_URL=$VITE_API_URL
+
 RUN npm run build
 
 RUN npm install -g serve

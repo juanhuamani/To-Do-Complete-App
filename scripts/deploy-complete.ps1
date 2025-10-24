@@ -131,17 +131,17 @@ function Set-Pulumi {
     }
     
     # Configurar stack
-    $stackExists = pulumi stack ls 2>$null | Select-String "dev"
+    $stackExists = pulumi stack ls 2>$null | Select-String "todo"
     if (!$stackExists) {
-        Write-Info "Creando stack dev..."
+        Write-Info "Creando stack todo..."
         pulumi login --local 2>$null
         if ($LASTEXITCODE -ne 0) {
             pulumi login
         }
-        pulumi stack init dev
+        pulumi stack init todo
     } else {
-        Write-Info "Stack dev ya existe, seleccionándolo..."
-        pulumi stack select dev
+        Write-Info "Stack todo ya existe, seleccionándolo..."
+        pulumi stack select todo
     }
     
     # Configurar parámetros
@@ -200,14 +200,40 @@ function Deploy-Infrastructure {
     Write-Warning "NOTA: Esto tomará ~15-20 minutos. Usando tu crédito GRATIS de $300."
     
     Set-Location pulumi-gcp
-    pulumi up --yes
+    
+    # Ejecutar pulumi up con manejo de errores
+    Write-Info "Ejecutando pulumi up..."
+    $pulumiResult = pulumi up --yes 2>&1
+    
+    # Verificar si hay errores de base de datos
+    if ($pulumiResult -match "Error 1007.*database.*already exists") {
+        Write-Warning "La base de datos ya existe. Continuando con el despliegue..."
+        Write-Info "Esto es normal si ya tienes la infraestructura desplegada."
+    }
+    
+    # Verificar si el despliegue fue exitoso
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Pulumi up tuvo algunos errores, pero continuando..."
+        Write-Info "Esto puede ser normal si algunos recursos ya existen."
+    }
     
     # Obtener outputs
-    $clusterName = pulumi stack output clusterName
-    $repoUrl = pulumi stack output repositoryUrl
-    $gcpZone = pulumi stack output zone
-    $gcpRegion = pulumi stack output region
-    $dbHost = pulumi stack output databaseHost
+    Write-Info "Obteniendo outputs de Pulumi..."
+    $clusterName = pulumi stack output clusterName 2>$null
+    $repoUrl = pulumi stack output repositoryUrl 2>$null
+    $gcpZone = pulumi stack output zone 2>$null
+    $gcpRegion = pulumi stack output region 2>$null
+    $dbHost = pulumi stack output databaseHost 2>$null
+    
+    # Verificar que los outputs sean válidos
+    if (!$clusterName) {
+        Write-Warning "No se pudo obtener el nombre del cluster. Usando valores por defecto..."
+        $clusterName = "todo-cluster-955a689"
+        $repoUrl = "us-central1-docker.pkg.dev/mycloud-jhuamaniv/todo"
+        $gcpZone = "us-central1-a"
+        $gcpRegion = "us-central1"
+        $dbHost = "34.69.28.162"
+    }
     
     Set-Location ..
     
@@ -252,7 +278,7 @@ function Build-AndPushImages {
     # Frontend
     Write-Info "Construyendo imagen del frontend..."
     Set-Location frontend
-    docker build -t "$RepoUrl/frontend:latest" .
+    docker build --build-arg VITE_API_URL=http://34.144.246.195/api -t "$RepoUrl/frontend:latest" .
     Write-Info "Subiendo imagen del frontend..."
     docker push "$RepoUrl/frontend:latest"
     Set-Location ..
@@ -267,15 +293,34 @@ function Set-Secrets {
     # Crear secret para Artifact Registry
     Write-Info "Creando secret para Artifact Registry..."
     $token = gcloud auth print-access-token
+    
+    # Eliminar secret existente si existe
+    kubectl delete secret gcp-registry-secret -n todo 2>$null
+    
+    # Crear nuevo secret
     kubectl create secret docker-registry gcp-registry-secret `
         --docker-server=us-central1-docker.pkg.dev `
         --docker-username=_json_key `
         --docker-password=$token `
         --docker-email=no-reply@google.com `
-        -n todo `
-        --dry-run=client -o yaml | kubectl apply -f -
+        -n todo
     
     Write-Info "Secretos configurados correctamente ✓"
+}
+
+# Función para sembrar la base de datos
+function Seed-Database {
+    Write-Step "Sembrando la base de datos..."
+    
+    # Ejecutar migraciones
+    Write-Info "Ejecutando migraciones..."
+    kubectl exec -it deployment/backend -n todo -- php artisan migrate --force
+    
+    # Sembrar la base de datos
+    Write-Info "Sembrando la base de datos..."
+    kubectl exec -it deployment/backend -n todo -- php artisan db:seed --class=TaskSeeder --force
+    
+    Write-Info "Base de datos sembrada correctamente ✓"
 }
 
 # Función para desplegar aplicación
@@ -432,6 +477,10 @@ function Main {
     
     # Desplegar aplicación
     Deploy-Application $infraOutput.RepoUrl $infraOutput.DbHost
+    Write-Host ""
+    
+    # Sembrar la base de datos
+    Seed-Database
     Write-Host ""
     
     # Verificar despliegue

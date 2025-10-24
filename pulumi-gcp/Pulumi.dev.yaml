@@ -1,12 +1,12 @@
 encryptionsalt: v1:edAxaBUobMI=:v1:x8PyD9c+IgXYCVvT:BMm8nPqDP7ZX4aFSvPoFev3cIYXAYQ==
 config:
-  gcpProject: mycloud-jhuamaniv
-  gcpRegion: us-central1
-  gcpZone: us-central1-a
-  minNodes: "2"
-  maxNodes: "10"
-  machineType: e2-medium
-  dbPassword:
-    secure: v1:u66is0pGaN8mRYz9:8FMnCIxuhhXmSKcJVCHLoqc1/YtTpS9TBwQSFn2Y+bgEWm5c
-  appKey:
-    secure: v1:QFs5+C3paKFOQuHk:5DFEVKXadnl8TDUUYjxYuT33WV9EU+CH7dAjLnVHcp6R+m1s5ULfektzKCQ9MDecl68mEK74mMOk+l9ZimiH
+  todo:appKey:
+    secure: v1:OTKO1jluhBrloVt4:wBKPYEpXRe9J/vcuSyI2JgaJwp6Am3Jcxf6Zvn5qmBI=
+  todo:dbPassword:
+    secure: v1:aFAjw3/s5A1Y2CEu:3MbsIuLtYiqOjZLvTeo+V8Q1hiqaj+J2EJWyQ3zLGIkcLEnv
+  todo:gcpProject: mycloud-jhuamaniv
+  todo:gcpRegion: us-central1
+  todo:gcpZone: us-central1-a
+  todo:machineType: e2-medium
+  todo:maxNodes: "10"
+  todo:minNodes: "2"

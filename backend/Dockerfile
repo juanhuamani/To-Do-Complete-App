@@ -15,7 +15,12 @@ COPY --from=composer /usr/bin/composer /usr/bin/composer
 COPY . .
 
 RUN composer install --no-interaction --prefer-dist
-RUN php artisan key:generate
 
+# Crear archivo .env básico para Laravel
+RUN cp .env.example .env && \
+    sed -i "s/APP_ENV=local/APP_ENV=production/g" .env && \
+    sed -i "s/APP_DEBUG=true/APP_DEBUG=false/g" .env
+
+RUN php artisan key:generate
 EXPOSE 8000
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
