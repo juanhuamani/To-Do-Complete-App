@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: todo
+data:
+  APP_ENV: "production"
+  APP_DEBUG: "false"
+  DB_CONNECTION: "mysql"
+  DB_PORT: "3306"
+  DB_DATABASE: "mydb"
+  CACHE_DRIVER: "file"
+  QUEUE_CONNECTION: "sync"
+

@@ -9,15 +9,17 @@ const projectName = "todo";
 const awsRegion = config.get("awsRegion") || "us-east-1"; // Usar us-east-1 para free tier
 
 // Configuración del cluster
-const minNodes = config.getNumber("minNodes") || 1; // Usar 1 para free tier
-const maxNodes = config.getNumber("maxNodes") || 3; // Reducir para free tier
+const minNodes = config.getNumber("minNodes") || 2; // Mínimo 2 nodos para evitar "Too many pods"
+const maxNodes = config.getNumber("maxNodes") || 3; // Máximo 3 nodos
 const instanceType = config.get("instanceType") || "t3.small"; // t3.small para free tier (si aplica)
 
 // Crear VPC con subredes públicas y privadas
 const vpc = new awsx.ec2.Vpc(`${projectName}-vpc`, {
     cidrBlock: "10.0.0.0/16",
     numberOfAvailabilityZones: 2,
-    numberOfNatGateways: 1, // 1 NAT Gateway para ahorrar costos
+    natGateways: {
+        strategy: "Single", // 1 NAT Gateway para ahorrar costos
+    },
     subnetSpecs: [
         {
             type: awsx.ec2.SubnetType.Public,
@@ -63,6 +65,7 @@ const backendRepo = new aws.ecr.Repository(`${projectName}-backend-repo`, {
         scanOnPush: true,
     },
     imageTagMutability: "MUTABLE",
+    forceDelete: true, // Permite eliminar el repositorio aunque contenga imágenes
 });
 
 const frontendRepo = new aws.ecr.Repository(`${projectName}-frontend-repo`, {
@@ -71,6 +74,7 @@ const frontendRepo = new aws.ecr.Repository(`${projectName}-frontend-repo`, {
         scanOnPush: true,
     },
     imageTagMutability: "MUTABLE",
+    forceDelete: true, // Permite eliminar el repositorio aunque contenga imágenes
 });
 
 // Crear IAM Role para EKS Cluster
@@ -221,6 +225,39 @@ const appNamespace = new k8s.core.v1.Namespace(
     { provider: k8sProvider }
 );
 
+// Crear Security Group para RDS
+const dbSecurityGroup = new aws.ec2.SecurityGroup(`${projectName}-db-sg`, {
+    description: "Security group for RDS MySQL database",
+    vpcId: vpc.vpcId,
+    ingress: [
+        {
+            description: "Allow MySQL from EKS cluster security group",
+            fromPort: 3306,
+            toPort: 3306,
+            protocol: "tcp",
+            securityGroups: [clusterSg.id],
+        },
+        {
+            description: "Allow MySQL from VPC",
+            fromPort: 3306,
+            toPort: 3306,
+            protocol: "tcp",
+            cidrBlocks: ["10.0.0.0/16"], // Permite desde toda la VPC
+        },
+    ],
+    egress: [
+        {
+            fromPort: 0,
+            toPort: 0,
+            protocol: "-1",
+            cidrBlocks: ["0.0.0.0/0"],
+        },
+    ],
+    tags: {
+        Name: `${projectName}-db-sg`,
+    },
+}, { dependsOn: [clusterSg] });
+
 // Crear RDS MySQL Database Instance (PostgreSQL no está en free tier)
 const dbSubnetGroup = new aws.rds.SubnetGroup(`${projectName}-db-subnet`, {
     subnetIds: vpc.privateSubnetIds,
@@ -232,7 +269,7 @@ const dbSubnetGroup = new aws.rds.SubnetGroup(`${projectName}-db-subnet`, {
 const dbPassword = config.requireSecret("dbPassword");
 const dbInstance = new aws.rds.Instance(`${projectName}-mysql`, {
     engine: "mysql",
-    engineVersion: "8.0.35",
+    engineVersion: "8.0.37", // Versión disponible en AWS RDS
     instanceClass: "db.t3.micro", // Free tier elegible
     allocatedStorage: 20,
     storageType: "gp2",
@@ -241,7 +278,7 @@ const dbInstance = new aws.rds.Instance(`${projectName}-mysql`, {
     password: dbPassword,
     
     dbSubnetGroupName: dbSubnetGroup.name,
-    vpcSecurityGroupIds: [],
+    vpcSecurityGroupIds: [dbSecurityGroup.id],
     
     backupRetentionPeriod: 7,
     skipFinalSnapshot: true,
@@ -249,7 +286,7 @@ const dbInstance = new aws.rds.Instance(`${projectName}-mysql`, {
     tags: {
         Name: `${projectName}-mysql`,
     },
-});
+}, { dependsOn: [dbSecurityGroup, dbSubnetGroup] });
 
 // Crear Secret de Kubernetes para MySQL
 const mysqlSecret = new k8s.core.v1.Secret(

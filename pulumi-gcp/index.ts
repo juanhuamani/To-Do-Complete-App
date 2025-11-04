@@ -12,9 +12,9 @@ const gcpZone = config.get("gcpZone") || "us-central1-a";
 // Configuración del cluster
 const minNodes = config.getNumber("minNodes") || 2;
 const maxNodes = config.getNumber("maxNodes") || 10;
-const machineType = config.get("machineType") || "e2-medium"; // Similar a t3.medium de AWS
+const machineType = config.get("machineType") || "e2-medium";
 
-// Habilitar APIs necesarias de GCP (si no están habilitadas)
+// Habilitar APIs necesarias de GCP
 const computeApi = new gcp.projects.Service("compute-api", {
     service: "compute.googleapis.com",
     project: gcpProject,
@@ -78,13 +78,11 @@ const saBindings = saRoles.map((role, index) =>
     })
 );
 
-// Crear GKE Cluster con Autopilot (recomendado para free tier - más eficiente)
-// O Standard cluster con autoscaling
+// Crear GKE Cluster 
 const cluster = new gcp.container.Cluster(`${projectName}-cluster`, {
     project: gcpProject,
     location: gcpZone,
     
-    // Configuración de red
     network: network.name,
     subnetwork: subnet.name,
     
@@ -93,11 +91,9 @@ const cluster = new gcp.container.Cluster(`${projectName}-cluster`, {
         servicesSecondaryRangeName: "services",
     },
     
-    // Eliminar el node pool por defecto (lo crearemos separado)
     removeDefaultNodePool: true,
     initialNodeCount: 1,
     
-    // Habilitar autoscaling del cluster
     clusterAutoscaling: {
         enabled: true,
         autoscalingProfile: "OPTIMIZE_UTILIZATION",
@@ -115,7 +111,7 @@ const cluster = new gcp.container.Cluster(`${projectName}-cluster`, {
         ],
     },
     
-    // Habilitar Workload Identity (mejor práctica)
+    // Habilitar Workload Identity
     workloadIdentityConfig: {
         workloadPool: `${gcpProject}.svc.id.goog`,
     },
@@ -130,7 +126,6 @@ const cluster = new gcp.container.Cluster(`${projectName}-cluster`, {
         horizontalPodAutoscaling: { disabled: false },
     },
     
-    // Mantenimiento automático
     maintenancePolicy: {
         dailyMaintenanceWindow: {
             startTime: "03:00",
@@ -215,7 +210,7 @@ const k8sProvider = new k8s.Provider(`${projectName}-k8s-provider`, {
     kubeconfig: clusterKubeconfig,
 }, { dependsOn: [nodePool] });
 
-// Instalar Metrics Server (necesario para HPA)
+// Instalar Metrics Server
 const metricsServer = new k8s.yaml.ConfigFile(
     "metrics-server",
     {
@@ -242,13 +237,13 @@ const dbInstance = new gcp.sql.DatabaseInstance(`${projectName}-mysql`, {
     databaseVersion: "MYSQL_8_0",
     
     settings: {
-        tier: "db-f1-micro", // Free tier eligible
+        tier: "db-f1-micro",
         
         ipConfiguration: {
             ipv4Enabled: true,
             authorizedNetworks: [
                 {
-                    name: "allow-all", // En producción, restringir esto
+                    name: "allow-all",
                     value: "0.0.0.0/0",
                 },
             ],
@@ -265,7 +260,7 @@ const dbInstance = new gcp.sql.DatabaseInstance(`${projectName}-mysql`, {
         },
     },
     
-    deletionProtection: false, // Para facilitar destrucción en demos
+    deletionProtection: false,
 }, { dependsOn: [sqlApi] });
 
 // Crear database
@@ -324,7 +319,7 @@ const backendConfigMap = new k8s.core.v1.ConfigMap(
     { provider: k8sProvider, dependsOn: [appNamespace] }
 );
 
-// Crear Artifact Registry repository (como ECR en AWS)
+// Crear Artifact Registry repository
 const repository = new gcp.artifactregistry.Repository(`${projectName}-repo`, {
     project: gcpProject,
     location: gcpRegion,
@@ -345,42 +340,5 @@ export const dbHost = dbInstance.publicIpAddress;
 export const dbConnectionName = dbInstance.connectionName;
 
 // Instrucciones para el usuario
-export const nextSteps = pulumi.interpolate`
-¡Infraestructura en Google Cloud creada exitosamente! 🎉
-
-IMPORTANTE: Estás usando los $300 de crédito GRATIS de Google Cloud.
-
-Próximos pasos:
-
-1. Configurar kubectl:
-   $ gcloud container clusters get-credentials ${cluster.name} --zone ${gcpZone} --project ${gcpProject}
-
-2. Autenticar Docker con Artifact Registry:
-   $ gcloud auth configure-docker ${gcpRegion}-docker.pkg.dev
-
-3. Construir y subir imágenes:
-   $ docker build -t ${gcpRegion}-docker.pkg.dev/${gcpProject}/${repository.repositoryId}/backend:latest ./backend
-   $ docker push ${gcpRegion}-docker.pkg.dev/${gcpProject}/${repository.repositoryId}/backend:latest
-   
-   $ docker build -t ${gcpRegion}-docker.pkg.dev/${gcpProject}/${repository.repositoryId}/frontend:latest ./frontend
-   $ docker push ${gcpRegion}-docker.pkg.dev/${gcpProject}/${repository.repositoryId}/frontend:latest
-
-4. Actualizar manifiestos de K8s con las nuevas URLs de imágenes y desplegar:
-   $ kubectl apply -f k8s-gcp/
-
-5. Verificar el autoscaling:
-   $ kubectl get hpa -n ${appNamespace.metadata.name}
-   $ kubectl top pods -n ${appNamespace.metadata.name}
-
-6. Realizar prueba de carga:
-   $ bash scripts/load-test-gcp.sh
-
-7. Ver tu crédito restante:
-   $ gcloud billing accounts list
-   $ gcloud billing budgets list
-
-Recuerda: Tienes $300 de crédito GRATIS por 90 días. Esto es más que suficiente para tus demos.
-
-Cuando termines, ejecuta 'pulumi destroy' para eliminar recursos y ahorrar crédito.
-`;
+export const nextSteps = pulumi.interpolate`Infraestructura en Google Cloud creada`;
 

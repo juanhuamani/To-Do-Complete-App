@@ -591,6 +591,14 @@ test_horizontal_scaling() {
         timeout 120 kubectl rollout status deployment/backend -n todo || print_warning "Timeout en backend, continuando..."
         timeout 120 kubectl rollout status deployment/frontend -n todo || print_warning "Timeout en frontend, continuando..."
         
+        # Configurar cache de Laravel en todos los pods del backend
+        print_info "Configurando cache de Laravel en pods del backend..."
+        for pod in $(kubectl get pods -n todo -l app=backend --no-headers | awk '{print $1}'); do
+            print_info "Configurando cache en pod $pod..."
+            kubectl exec -n todo $pod -- php artisan config:cache >/dev/null 2>&1 || print_warning "No se pudo configurar cache en $pod"
+            kubectl exec -n todo $pod -- php artisan route:cache >/dev/null 2>&1 || print_warning "No se pudo configurar cache en $pod"
+        done
+        
         print_info "Estado después del escalado mínimo:"
         kubectl get pods -n todo -l app=backend
         kubectl get pods -n todo -l app=frontend
@@ -606,6 +614,14 @@ test_horizontal_scaling() {
         print_info "Esperando a que el escalado de prueba se complete..."
         timeout 180 kubectl rollout status deployment/backend -n todo || print_warning "Timeout en backend, continuando..."
         timeout 180 kubectl rollout status deployment/frontend -n todo || print_warning "Timeout en frontend, continuando..."
+        
+        # Configurar cache de Laravel en los nuevos pods del backend
+        print_info "Configurando cache de Laravel en nuevos pods del backend..."
+        for pod in $(kubectl get pods -n todo -l app=backend --no-headers | awk '{print $1}'); do
+            print_info "Configurando cache en pod $pod..."
+            kubectl exec -n todo $pod -- php artisan config:cache >/dev/null 2>&1 || print_warning "No se pudo configurar cache en $pod"
+            kubectl exec -n todo $pod -- php artisan route:cache >/dev/null 2>&1 || print_warning "No se pudo configurar cache en $pod"
+        done
         
         print_info "Estado después del escalado de prueba:"
         kubectl get pods -n todo -l app=backend
@@ -627,6 +643,14 @@ test_horizontal_scaling() {
             print_info "Esperando a que el escalado se complete..."
             timeout 120 kubectl rollout status deployment/backend -n todo || print_warning "Timeout en backend, continuando..."
             timeout 120 kubectl rollout status deployment/frontend -n todo || print_warning "Timeout en frontend, continuando..."
+            
+            # Configurar cache de Laravel en todos los pods del backend
+            print_info "Configurando cache de Laravel en pods del backend..."
+            for pod in $(kubectl get pods -n todo -l app=backend --no-headers | awk '{print $1}'); do
+                print_info "Configurando cache en pod $pod..."
+                kubectl exec -n todo $pod -- php artisan config:cache >/dev/null 2>&1 || print_warning "No se pudo configurar cache en $pod"
+                kubectl exec -n todo $pod -- php artisan route:cache >/dev/null 2>&1 || print_warning "No se pudo configurar cache en $pod"
+            done
             
             print_info "Estado final:"
             kubectl get pods -n todo -l app=backend

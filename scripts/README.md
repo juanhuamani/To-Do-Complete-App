@@ -1,11 +1,11 @@
 # 🚀 Scripts de Gestión del Cluster To-Do App
 
-Este directorio contiene scripts útiles para gestionar y monitorear tu aplicación To-Do desplegada en Google Cloud Kubernetes Engine (GKE).
+Este directorio contiene scripts útiles para gestionar y monitorear tu aplicación To-Do desplegada en Google Cloud Kubernetes Engine (GKE) o AWS EKS.
 
-## 📋 Scripts Disponibles
+## 📋 Scripts de Despliegue Disponibles
 
-### 1. `deploy-complete.sh` - Despliegue Completo
-Script principal para desplegar toda la aplicación en GCP.
+### 1. `deploy-complete.sh` - Despliegue Completo en GCP
+Script principal para desplegar toda la aplicación en Google Cloud.
 
 ```bash
 bash scripts/deploy-complete.sh
@@ -13,13 +13,29 @@ bash scripts/deploy-complete.sh
 
 **Características:**
 - ✅ Verificación de prerrequisitos
-- 🔐 Configuración de autenticación
+- 🔐 Configuración de autenticación GCP
 - 🏗️ Despliegue de infraestructura con Pulumi
 - 🐳 Construcción y subida de imágenes Docker
 - 🚀 Despliegue en Kubernetes
 - 🌱 Sembrado de base de datos
 
-### 2. `cluster-menu.sh` - Menú Interactivo
+### 2. `deploy-complete-aws.sh` - Despliegue Completo en AWS
+Script para desplegar toda la aplicación en AWS EKS.
+
+```bash
+bash scripts/deploy-complete-aws.sh
+```
+
+**Características:**
+- ✅ Verificación de prerrequisitos
+- 🔐 Configuración de autenticación AWS
+- 🏗️ Despliegue de infraestructura con Pulumi (EKS, RDS, ECR)
+- 🐳 Construcción y subida de imágenes Docker a ECR
+- 🚀 Despliegue en EKS
+- 🌱 Sembrado de base de datos
+- 💰 Usando AWS Free Tier cuando es posible
+
+### 3. `cluster-menu.sh` - Menú Interactivo
 Menú completo para gestionar el cluster de forma interactiva.
 
 ```bash
@@ -40,7 +56,7 @@ bash scripts/cluster-menu.sh
 - 📊 Métricas de rendimiento
 - 🚀 Información de la aplicación
 
-### 3. `cluster-quick.sh` - Comandos Rápidos
+### 4. `cluster-quick.sh` - Comandos Rápidos
 Script para comandos rápidos desde la línea de comandos.
 
 ```bash
@@ -81,7 +97,7 @@ bash scripts/cluster-quick.sh menu
 bash scripts/cluster-quick.sh help
 ```
 
-### 4. `cluster-monitor.sh` - Monitoreo en Tiempo Real
+### 5. `cluster-monitor.sh` - Monitoreo en Tiempo Real
 Script para monitorear el cluster en tiempo real.
 
 ```bash
@@ -99,12 +115,22 @@ bash scripts/cluster-monitor.sh
 
 Antes de usar estos scripts, asegúrate de tener instalado:
 
+### Para GCP:
 - **Google Cloud SDK** (`gcloud`)
 - **kubectl** (Kubernetes CLI)
 - **Docker**
 - **Pulumi**
 
+### Para AWS:
+- **AWS CLI**
+- **kubectl** (Kubernetes CLI)
+- **Docker**
+- **Node.js**
+- **Pulumi**
+
 ## 🔧 Configuración Inicial
+
+### Para GCP:
 
 1. **Autenticación en Google Cloud:**
    ```bash
@@ -120,6 +146,26 @@ Antes de usar estos scripts, asegúrate de tener instalado:
 3. **Configurar kubectl:**
    ```bash
    gcloud container clusters get-credentials CLUSTER_NAME --zone ZONE --project PROJECT_ID
+   ```
+
+### Para AWS:
+
+1. **Autenticación en AWS:**
+   ```bash
+   aws configure
+   # O configura las variables de entorno:
+   # AWS_ACCESS_KEY_ID
+   # AWS_SECRET_ACCESS_KEY
+   ```
+
+2. **Verificar autenticación:**
+   ```bash
+   aws sts get-caller-identity
+   ```
+
+3. **Configurar kubectl (después del despliegue):**
+   ```bash
+   aws eks update-kubeconfig --name CLUSTER_NAME --region REGION
    ```
 
 ## 📊 Comandos Útiles de kubectl
@@ -187,12 +233,23 @@ kubectl get events -n todo --sort-by='.lastTimestamp'
 ## 🚨 Solución de Problemas
 
 ### Error de conexión a kubectl
+
+**Para GCP:**
 ```bash
 # Verificar configuración
 kubectl config current-context
 
 # Reconfigurar credenciales
 gcloud container clusters get-credentials CLUSTER_NAME --zone ZONE --project PROJECT_ID
+```
+
+**Para AWS:**
+```bash
+# Verificar configuración
+kubectl config current-context
+
+# Reconfigurar credenciales
+aws eks update-kubeconfig --name CLUSTER_NAME --region REGION
 ```
 
 ### Pods en estado Pending
@@ -270,4 +327,40 @@ Si encuentras problemas:
 
 ---
 
-¡Disfruta gestionando tu aplicación To-Do en Google Cloud! 🎉
+## 🌍 Despliegue en Múltiples Nubes
+
+Este proyecto soporta despliegue en múltiples plataformas:
+
+### Google Cloud (GCP)
+- **Cluster:** GKE (Google Kubernetes Engine)
+- **Registry:** Artifact Registry
+- **Database:** Cloud SQL (MySQL)
+- **LoadBalancer:** Google Cloud Load Balancer
+- **Script:** `bash scripts/deploy-complete.sh`
+- **Manifiestos:** `k8s-gcp/`
+- **Pulumi:** `pulumi-gcp/`
+
+### Amazon Web Services (AWS)
+- **Cluster:** EKS (Elastic Kubernetes Service)
+- **Registry:** ECR (Elastic Container Registry)
+- **Database:** RDS MySQL
+- **LoadBalancer:** AWS ELB
+- **Script:** `bash scripts/deploy-complete-aws.sh`
+- **Manifiestos:** `k8s-aws/`
+- **Pulumi:** `pulumi-aws/`
+
+### Comparación de Costos
+
+**GCP:**
+- ✅ $300 de crédito gratuito
+- ✅ Free tier por 90 días
+- Costo estimado con Free Tier: ~$0/mes (primeros 3 meses)
+
+**AWS:**
+- ✅ Free tier por 12 meses
+- ⚠️ Nodos t3.small no son gratis
+- Costo estimado: ~$30-50/mes (puedes reducir a 1 nodo para ~$15/mes)
+
+---
+
+¡Disfruta gestionando tu aplicación To-Do en la nube! 🎉
