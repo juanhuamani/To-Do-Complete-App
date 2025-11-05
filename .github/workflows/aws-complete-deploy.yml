@@ -38,7 +38,7 @@ jobs:
           cache-dependency-path: pulumi-aws/package-lock.json
 
       - name: Install Pulumi CLI
-        uses: pulumi/setup-pulumi@v3
+        uses: pulumi/setup-pulumi@v2
 
       - name: Install Pulumi dependencies
         working-directory: pulumi-aws
