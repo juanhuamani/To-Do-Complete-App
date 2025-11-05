@@ -1,0 +1,223 @@
+name: AWS Complete Deploy (Pulumi + ECR + EKS)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+  PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+  PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+
+jobs:
+  deploy:
+    name: Provision + Build/Push + Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+
+      - name: Setup Node.js (Pulumi project)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: pulumi-aws/package-lock.json
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions-install-pulumi-cli@v2
+
+      - name: Install Pulumi dependencies
+        working-directory: pulumi-aws
+        run: npm ci
+
+      - name: Select or create Pulumi stack
+        id: pulumi_stack
+        working-directory: pulumi-aws
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          STACK="dev"
+          pulumi stack select "$STACK" || pulumi stack init "$STACK"
+          echo "stack=$STACK" >> $GITHUB_OUTPUT
+
+      - name: Pulumi config defaults
+        working-directory: pulumi-aws
+        shell: bash
+        run: |
+          pulumi config set awsRegion ${AWS_REGION} --non-interactive || true
+          pulumi config set minNodes 2 --non-interactive || true
+          pulumi config set maxNodes 3 --non-interactive || true
+          pulumi config set instanceType t3.small --non-interactive || true
+
+      - name: Pulumi up (provision infra)
+        working-directory: pulumi-aws
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
+        run: pulumi up --yes --skip-preview
+
+      - name: Read Pulumi outputs
+        id: pul_outputs
+        working-directory: pulumi-aws
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLUSTER=$(pulumi stack output clusterName)
+          BACKEND_REPO=$(pulumi stack output backendRepoUrl)
+          FRONTEND_REPO=$(pulumi stack output frontendRepoUrl)
+          DB_HOST=$(pulumi stack output dbHost)
+          REGION=$(pulumi stack output region)
+          echo "cluster=$CLUSTER" >> $GITHUB_OUTPUT
+          echo "backend_repo=$BACKEND_REPO" >> $GITHUB_OUTPUT
+          echo "frontend_repo=$FRONTEND_REPO" >> $GITHUB_OUTPUT
+          echo "db_host=$DB_HOST" >> $GITHUB_OUTPUT
+          echo "region=$REGION" >> $GITHUB_OUTPUT
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          for REPO in backend frontend; do
+            aws ecr describe-repositories --repository-names "$REPO" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$REPO" --image-scanning-configuration scanOnPush=true --image-tag-mutability MUTABLE >/dev/null
+          done
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push backend:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ steps.pul_outputs.outputs.backend_repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & Push frontend:latest (placeholder API)
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: ${{ steps.pul_outputs.outputs.frontend_repo }}:latest
+          build-args: |
+            VITE_API_URL=http://PLACEHOLDER/api
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --region "${{ steps.pul_outputs.outputs.region }}" --name "${{ steps.pul_outputs.outputs.cluster }}"
+
+      - name: Create namespace todo (if not exists)
+        run: kubectl create namespace todo || true
+
+      - name: Create/Update ECR pull secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n todo delete secret ecr-registry-secret || true
+          TOKEN=$(aws ecr get-authorization-token --region $AWS_REGION --query 'authorizationData[0].authorizationToken' --output text)
+          SERVER="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          kubectl -n todo create secret docker-registry ecr-registry-secret \
+            --docker-server=https://$SERVER \
+            --docker-username=AWS \
+            --docker-password="$TOKEN"
+
+      - name: Apply base manifests (ConfigMaps/Services)
+        run: |
+          kubectl apply -f k8s-aws/namespace.yaml
+          kubectl apply -f k8s-aws/backend-configmap.yaml
+          kubectl apply -f k8s-aws/frontend-configmap.yaml
+          kubectl apply -f k8s-aws/backend-service.yaml
+          kubectl apply -f k8s-aws/frontend-service.yaml
+
+      - name: Apply deployments and set images
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f k8s-aws/backend-deployment.yaml
+          kubectl -n todo set image deployment/backend backend="${{ steps.pul_outputs.outputs.backend_repo }}:latest" --record=true
+          kubectl -n todo rollout status deployment/backend --timeout=5m
+
+          kubectl apply -f k8s-aws/frontend-deployment.yaml
+          kubectl -n todo set image deployment/frontend frontend="${{ steps.pul_outputs.outputs.frontend_repo }}:latest" --record=true
+          kubectl -n todo rollout status deployment/frontend --timeout=5m
+
+      - name: Get Backend LoadBalancer URL
+        id: backend_lb
+        shell: bash
+        run: |
+          set -euo pipefail
+          ATTEMPTS=30
+          for i in $(seq 1 $ATTEMPTS); do
+            HOST=$(kubectl get service backend -n todo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
+            PORT=$(kubectl get service backend -n todo -o jsonpath='{.spec.ports[0].port}' || echo 8000)
+            if [ -n "$HOST" ] && [ "$HOST" != "null" ]; then
+              echo "url=http://$HOST:$PORT" >> $GITHUB_OUTPUT
+              echo "Found backend LB: http://$HOST:$PORT"
+              exit 0
+            fi
+            echo "Waiting for backend LB... ($i/$ATTEMPTS)"
+            sleep 10
+          done
+          echo "url=" >> $GITHUB_OUTPUT
+          echo "Backend LB not ready"
+
+      - name: Rebuild & Push frontend with real API URL
+        if: ${{ steps.backend_lb.outputs.url != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: ${{ steps.pul_outputs.outputs.frontend_repo }}:latest
+          build-args: |
+            VITE_API_URL=${{ steps.backend_lb.outputs.url }}/api
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Restart frontend deployment (new image)
+        if: ${{ steps.backend_lb.outputs.url != '' }}
+        run: |
+          kubectl -n todo rollout restart deployment/frontend
+          kubectl -n todo rollout status deployment/frontend --timeout=2m || true
+
+      - name: Run migrations & seed
+        run: |
+          kubectl exec deployment/backend -n todo -- php artisan migrate --force
+          kubectl exec deployment/backend -n todo -- php artisan db:seed --class=TaskSeeder --force
+
+      - name: Show services and HPAs
+        run: |
+          kubectl get pods -n todo
+          kubectl get services -n todo
+          kubectl get hpa -n todo || true
+
+
