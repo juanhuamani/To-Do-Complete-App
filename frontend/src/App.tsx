@@ -5,6 +5,7 @@ import { Search, X, Clock, Play, CheckSquare, Archive } from 'lucide-react'
 import Header from './components/Header'
 import KanbanBoard from './components/KanbanBoard'
 import CreateTask from './components/CreateTask'
+import MetricsPanel from './components/MetricsPanel'
 import { apiService, type CreateTaskData } from './services/api'
 import './App.css'
 
@@ -271,6 +272,9 @@ function KanbanPage() {
           </div>
         </div>
       </div>
+
+      {/* Panel de métricas */}
+      <MetricsPanel />
     </div>
   )
 }
