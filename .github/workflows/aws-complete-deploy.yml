@@ -83,6 +83,15 @@ jobs:
             pulumi config set --secret appKey "${GEN_APP_KEY}" --non-interactive || true
           fi
 
+      - name: Pulumi import existing ECR repos (idempotent)
+        working-directory: pulumi-aws
+        shell: bash
+        run: |
+          set +e
+          # Importa los repos si ya existen para evitar RepositoryAlreadyExists
+          pulumi import aws:ecr/repository:Repository todo-frontend-repo todo-frontend -y || true
+          pulumi import aws:ecr/repository:Repository todo-backend-repo todo-backend -y || true
+
       - name: Pulumi up (provision infra)
         working-directory: pulumi-aws
         env:
