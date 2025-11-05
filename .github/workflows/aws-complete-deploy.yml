@@ -84,6 +84,19 @@ jobs:
             pulumi config set --secret appKey "${GEN_APP_KEY}" --non-interactive || true
           fi
 
+      - name: Pulumi state cleanup for old ECR repos
+        working-directory: pulumi-aws
+        shell: bash
+        run: |
+          set +e
+          # Elimina del estado los recursos antiguos para que no intente borrarlos (protegidos)
+          FRONTEND_URN="urn:pulumi:dev::todo-aws::aws:ecr/repository:Repository::todo-frontend-repo"
+          BACKEND_URN="urn:pulumi:dev::todo-aws::aws:ecr/repository:Repository::todo-backend-repo"
+          pulumi state unprotect "$FRONTEND_URN" || true
+          pulumi state delete "$FRONTEND_URN" -y || true
+          pulumi state unprotect "$BACKEND_URN" || true
+          pulumi state delete "$BACKEND_URN" -y || true
+
       - name: Skip import (useExistingRepos=true)
         run: echo "Repos ECR existentes serán referenciados, no importados"
 
