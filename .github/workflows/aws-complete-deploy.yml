@@ -15,6 +15,8 @@ env:
   AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
   PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
   PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+  PULUMI_DB_PASSWORD: ${{ secrets.PULUMI_DB_PASSWORD }}
+  PULUMI_APP_KEY: ${{ secrets.PULUMI_APP_KEY }}
 
 jobs:
   deploy:
@@ -64,6 +66,22 @@ jobs:
           pulumi config set minNodes 2 --non-interactive || true
           pulumi config set maxNodes 3 --non-interactive || true
           pulumi config set instanceType t3.small --non-interactive || true
+          # dbPassword (secreto requerido)
+          if [ -n "${PULUMI_DB_PASSWORD}" ]; then
+            pulumi config set --secret dbPassword "${PULUMI_DB_PASSWORD}" --non-interactive || true
+          else
+            echo "No se encontró PULUMI_DB_PASSWORD; generando uno aleatorio temporal" >&2
+            RAND_DB=$(openssl rand -base64 24 2>/dev/null || head -c 32 /dev/urandom | base64)
+            pulumi config set --secret dbPassword "${RAND_DB}" --non-interactive || true
+          fi
+          # appKey (Laravel APP_KEY requerido)
+          if [ -n "${PULUMI_APP_KEY}" ]; then
+            pulumi config set --secret appKey "${PULUMI_APP_KEY}" --non-interactive || true
+          else
+            echo "No se encontró PULUMI_APP_KEY; generando uno tipo base64:" >&2
+            GEN_APP_KEY="base64:$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)"
+            pulumi config set --secret appKey "${GEN_APP_KEY}" --non-interactive || true
+          fi
 
       - name: Pulumi up (provision infra)
         working-directory: pulumi-aws
