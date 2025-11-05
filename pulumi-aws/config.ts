@@ -39,6 +39,7 @@ export class InfrastructureConfig {
     public readonly enableImageScanning: boolean;
     public readonly imageTagMutability: "MUTABLE" | "IMMUTABLE";
     public readonly forceDeleteRepos: boolean;
+    public readonly useExistingRepos: boolean;
     
     // Kubernetes configuration
     public readonly k8sNamespace: string;
@@ -93,6 +94,7 @@ export class InfrastructureConfig {
             ? mutability 
             : "MUTABLE";
         this.forceDeleteRepos = config.getBoolean("forceDeleteRepos") ?? true;
+        this.useExistingRepos = config.getBoolean("useExistingRepos") ?? false;
         
         // Kubernetes configuration
         this.k8sNamespace = config.get("k8sNamespace") || this.projectName;

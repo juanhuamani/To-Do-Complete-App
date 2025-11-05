@@ -22,33 +22,51 @@ export class Registry extends pulumi.ComponentResource {
     ) {
         super("custom:components:Registry", name, {}, opts);
 
-        // Create ECR repository for backend
-        this.backendRepo = new aws.ecr.Repository(
-            `${config.projectName}-backend-repo`,
-            {
-                name: `${config.projectName}-backend`,
-                imageScanningConfiguration: {
-                    scanOnPush: config.enableImageScanning,
-                },
-                imageTagMutability: config.imageTagMutability,
-                forceDelete: config.forceDeleteRepos,
-            },
-            { parent: this }
-        );
+        const backendName = `${config.projectName}-backend`;
+        const frontendName = `${config.projectName}-frontend`;
 
-        // Create ECR repository for frontend
-        this.frontendRepo = new aws.ecr.Repository(
-            `${config.projectName}-frontend-repo`,
-            {
-                name: `${config.projectName}-frontend`,
-                imageScanningConfiguration: {
-                    scanOnPush: config.enableImageScanning,
+        if (config.useExistingRepos) {
+            // Referencia a repos existentes por nombre (id)
+            this.backendRepo = aws.ecr.Repository.get(
+                `${config.projectName}-backend-repo`,
+                backendName,
+                undefined,
+                { parent: this }
+            );
+            this.frontendRepo = aws.ecr.Repository.get(
+                `${config.projectName}-frontend-repo`,
+                frontendName,
+                undefined,
+                { parent: this }
+            );
+        } else {
+            // Crear repos nuevos
+            this.backendRepo = new aws.ecr.Repository(
+                `${config.projectName}-backend-repo`,
+                {
+                    name: backendName,
+                    imageScanningConfiguration: {
+                        scanOnPush: config.enableImageScanning,
+                    },
+                    imageTagMutability: config.imageTagMutability,
+                    forceDelete: config.forceDeleteRepos,
                 },
-                imageTagMutability: config.imageTagMutability,
-                forceDelete: config.forceDeleteRepos,
-            },
-            { parent: this }
-        );
+                { parent: this }
+            );
+
+            this.frontendRepo = new aws.ecr.Repository(
+                `${config.projectName}-frontend-repo`,
+                {
+                    name: frontendName,
+                    imageScanningConfiguration: {
+                        scanOnPush: config.enableImageScanning,
+                    },
+                    imageTagMutability: config.imageTagMutability,
+                    forceDelete: config.forceDeleteRepos,
+                },
+                { parent: this }
+            );
+        }
 
         this.registerOutputs({
             backendRepo: this.backendRepo,
