@@ -179,34 +179,52 @@ jobs:
           set -euo pipefail
           CURRENT_ROLE_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
           echo "Current role ARN: $CURRENT_ROLE_ARN"
-          ROLE_NAME=$(echo $CURRENT_ROLE_ARN | awk -F'/' '{print $NF}')
+          # Extraer el ARN del rol base (sin el assumed-role)
+          BASE_ROLE_ARN=$(echo $CURRENT_ROLE_ARN | sed 's|:assumed-role/.*|:role/github-actions-eks-ecr|')
+          ROLE_NAME=$(echo $BASE_ROLE_ARN | awk -F'/' '{print $NF}')
           ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
           ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
+          echo "Base role ARN: $BASE_ROLE_ARN"
           echo "Root user ARN: $ROOT_USER_ARN"
-          kubectl get configmap aws-auth -n kube-system -o yaml > /tmp/aws-auth.yaml
+          # Obtener el ConfigMap actual en JSON
+          kubectl get configmap aws-auth -n kube-system -o json > /tmp/aws-auth.json
+          # Leer los valores actuales
+          MAP_ROLES=$(jq -r '.data.mapRoles // ""' /tmp/aws-auth.json)
+          MAP_USERS=$(jq -r '.data.mapUsers // ""' /tmp/aws-auth.json)
           UPDATED=false
-          if ! kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null | grep -q "$CURRENT_ROLE_ARN"; then
+          # Agregar el rol de GitHub Actions si no existe
+          if [ -z "$MAP_ROLES" ] || ! echo "$MAP_ROLES" | grep -q "$BASE_ROLE_ARN"; then
             echo "Adding GitHub Actions role to aws-auth ConfigMap..."
-            if ! grep -q "mapRoles:" /tmp/aws-auth.yaml; then
-              echo "  mapRoles: |" >> /tmp/aws-auth.yaml
+            NEW_ROLE_ENTRY=$(printf "- rolearn: %s\n      username: %s\n      groups:\n        - system:masters" "$BASE_ROLE_ARN" "$ROLE_NAME")
+            if [ -z "$MAP_ROLES" ]; then
+              MAP_ROLES="$NEW_ROLE_ENTRY"
+            else
+              MAP_ROLES="$MAP_ROLES"$'\n'"$NEW_ROLE_ENTRY"
             fi
-            if ! grep -q "$CURRENT_ROLE_ARN" /tmp/aws-auth.yaml; then
-              sed -i "/mapRoles: |/a\    - rolearn: $CURRENT_ROLE_ARN\n      username: $ROLE_NAME\n      groups:\n        - system:masters" /tmp/aws-auth.yaml
-              UPDATED=true
-            fi
+            UPDATED=true
           fi
-          if ! kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null | grep -q "$ROOT_USER_ARN"; then
+          # Agregar el usuario root si no existe
+          if [ -z "$MAP_USERS" ] || ! echo "$MAP_USERS" | grep -q "$ROOT_USER_ARN"; then
             echo "Adding root user to aws-auth ConfigMap..."
-            if ! grep -q "mapUsers:" /tmp/aws-auth.yaml; then
-              echo "  mapUsers: |" >> /tmp/aws-auth.yaml
+            NEW_USER_ENTRY=$(printf "- userarn: %s\n      username: root\n      groups:\n        - system:masters" "$ROOT_USER_ARN")
+            if [ -z "$MAP_USERS" ]; then
+              MAP_USERS="$NEW_USER_ENTRY"
+            else
+              MAP_USERS="$MAP_USERS"$'\n'"$NEW_USER_ENTRY"
             fi
-            if ! grep -q "$ROOT_USER_ARN" /tmp/aws-auth.yaml; then
-              sed -i "/mapUsers: |/a\    - userarn: $ROOT_USER_ARN\n      username: root\n      groups:\n        - system:masters" /tmp/aws-auth.yaml
-              UPDATED=true
-            fi
+            UPDATED=true
           fi
+          # Actualizar el ConfigMap si hubo cambios usando kubectl patch
           if [ "$UPDATED" = true ]; then
-            kubectl apply -f /tmp/aws-auth.yaml
+            # Usar kubectl patch para actualizar solo los campos necesarios
+            if [ -n "$MAP_ROLES" ]; then
+              echo "$MAP_ROLES" > /tmp/map-roles.txt
+              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapRoles\":$(jq -Rs . /tmp/map-roles.txt)}}"
+            fi
+            if [ -n "$MAP_USERS" ]; then
+              echo "$MAP_USERS" > /tmp/map-users.txt
+              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapUsers\":$(jq -Rs . /tmp/map-users.txt)}}"
+            fi
             echo "aws-auth ConfigMap updated successfully"
           else
             echo "aws-auth ConfigMap already configured"
