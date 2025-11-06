@@ -80,27 +80,34 @@ jobs:
         run: |
           set +e
           echo "Removing all Kubernetes resources from state..."
-          # Obtener todos los recursos del estado en formato JSON
-          pulumi stack --show-urns --json 2>/dev/null > /tmp/pulumi-state.json || echo "Could not get state, continuing..."
-          if [ -f /tmp/pulumi-state.json ]; then
-            # Extraer URNs de recursos de Kubernetes usando jq
-            jq -r '.resources[]?.urn // empty' /tmp/pulumi-state.json 2>/dev/null | grep -i "kubernetes:" | while read URN; do
+          # Método 1: Intentar obtener recursos usando pulumi stack export
+          echo "Method 1: Trying to get resources from stack export..."
+          pulumi stack export 2>/dev/null > /tmp/stack.json
+          if [ -f /tmp/stack.json ] && [ -s /tmp/stack.json ]; then
+            echo "Extracting Kubernetes resource URNs from stack export..."
+            jq -r '.deployment.resources[]? | select(.urn | contains("kubernetes:")) | .urn' /tmp/stack.json 2>/dev/null | while read URN; do
               if [ -n "$URN" ]; then
-                echo "Removing Kubernetes resource from state: $URN"
+                echo "Removing Kubernetes resource: $URN"
                 pulumi state delete "$URN" --yes 2>/dev/null && echo "✓ Deleted: $URN" || echo "⚠ Failed or already removed: $URN"
               fi
             done
           else
-            # Fallback: intentar eliminar recursos conocidos problemáticos
-            echo "Using fallback method to remove known problematic resources..."
-            for URN in \
-              "urn:pulumi:dev::todo-aws::custom:components:ClusterAutoscaler\$kubernetes:apps/v1:Deployment::cluster-autoscaler" \
-              "urn:pulumi:dev::todo-aws::custom:components:Kubernetes\$kubernetes:core/v1:Secret::mysql-secret" \
-              "urn:pulumi:dev::todo-aws::custom:components:Kubernetes\$kubernetes:core/v1:ConfigMap::backend-config"; do
-              echo "Attempting to delete: $URN"
-              pulumi state delete "$URN" --yes 2>/dev/null && echo "✓ Deleted: $URN" || echo "⚠ Not found: $URN"
-            done
+            echo "Could not export stack, using fallback method..."
           fi
+          # Método 2: Fallback - eliminar recursos conocidos problemáticos
+          echo "Method 2: Removing known problematic Kubernetes resources..."
+          for URN in \
+            "urn:pulumi:dev::todo-aws::custom:components:ClusterAutoscaler\$kubernetes:apps/v1:Deployment::cluster-autoscaler" \
+            "urn:pulumi:dev::todo-aws::custom:components:ClusterAutoscaler\$kubernetes:core/v1:ServiceAccount::cluster-autoscaler" \
+            "urn:pulumi:dev::todo-aws::custom:components:ClusterAutoscaler\$kubernetes:rbac.authorization.k8s.io/v1:ClusterRole::cluster-autoscaler" \
+            "urn:pulumi:dev::todo-aws::custom:components:ClusterAutoscaler\$kubernetes:rbac.authorization.k8s.io/v1:ClusterRoleBinding::cluster-autoscaler" \
+            "urn:pulumi:dev::todo-aws::custom:components:Kubernetes\$kubernetes:core/v1:Secret::mysql-secret" \
+            "urn:pulumi:dev::todo-aws::custom:components:Kubernetes\$kubernetes:core/v1:ConfigMap::backend-config" \
+            "urn:pulumi:dev::todo-aws::custom:components:Kubernetes\$kubernetes:core/v1:Namespace::todo-namespace" \
+            "urn:pulumi:dev::todo-aws::custom:components:LoadBalancer\$kubernetes:core/v1:ServiceAccount::aws-load-balancer-controller"; do
+            echo "Attempting to delete: $URN"
+            pulumi state delete "$URN" --yes 2>/dev/null && echo "✓ Deleted: $URN" || echo "⚠ Not found: $URN"
+          done
           echo "Kubernetes resources removal completed"
 
       - name: Destroy infrastructure
