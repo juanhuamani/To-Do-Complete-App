@@ -52,6 +52,19 @@ jobs:
           PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
         run: pulumi stack select dev
 
+      - name: Cancel any in-progress operations
+        working-directory: pulumi-aws
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
+        run: |
+          set +e
+          echo "Checking for in-progress operations..."
+          # Intentar cancelar cualquier operación en progreso
+          pulumi cancel || echo "No operations to cancel or already completed"
+          # Esperar un poco para que se complete la cancelación
+          sleep 5
+          echo "Ready to proceed with destroy"
+
       - name: Destroy infrastructure
         working-directory: pulumi-aws
         env:
