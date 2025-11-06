@@ -50,7 +50,15 @@ jobs:
         working-directory: pulumi-aws
         env:
           PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
-        run: pulumi stack select dev
+        run: |
+          set +e
+          pulumi stack select dev
+          if [ $? -ne 0 ]; then
+            echo "Stack 'dev' not found. It may have already been destroyed."
+            echo "Nothing to destroy. Exiting successfully."
+            exit 0
+          fi
+          echo "Stack 'dev' selected successfully"
 
       - name: Cancel any in-progress operations
         working-directory: pulumi-aws
@@ -86,7 +94,16 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
           PULUMI_K8S_DELETE_UNREACHABLE: "true"
-        run: pulumi destroy --yes --skip-preview
+        run: |
+          set +e
+          pulumi destroy --yes --skip-preview
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 255 ]; then
+            # Error 404 significa que el stack no existe o ya fue eliminado
+            echo "Stack may have already been destroyed (404 error). Checking..."
+            pulumi stack select dev 2>&1 | grep -q "404" && echo "Stack already destroyed. Exiting successfully." && exit 0
+          fi
+          exit $EXIT_CODE
 
       - name: Show destroyed resources
         working-directory: pulumi-aws
