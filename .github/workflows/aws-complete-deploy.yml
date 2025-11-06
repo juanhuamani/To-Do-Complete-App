@@ -202,6 +202,23 @@ jobs:
       
       - name: Create namespace todo (if not exists)
         run: kubectl create namespace todo || true
+      
+      - name: Clean up stuck pods before deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Limpiando pods problemáticos antes del deployment ==="
+          # Eliminar todos los pods en estado Pending o Terminating
+          kubectl -n todo get pods -o json 2>/dev/null | jq -r '.items[] | select(.status.phase == "Pending" or .status.phase == "Failed" or (.metadata.deletionTimestamp != null)) | .metadata.name' | while read pod; do
+            if [ -n "$pod" ]; then
+              echo "Eliminando pod problemático: $pod"
+              kubectl -n todo delete pod "$pod" --force --grace-period=0 || true
+            fi
+          done || echo "No hay pods para limpiar"
+          # Esperar un poco para que los pods se eliminen
+          sleep 5
+          echo "=== Estado después de limpieza ==="
+          kubectl -n todo get pods || true
 
       - name: Create/Update ECR pull secret
         shell: bash
