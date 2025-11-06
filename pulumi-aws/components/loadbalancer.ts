@@ -12,12 +12,6 @@ export interface LoadBalancerOutputs {
 /**
  * Load Balancer component.
  * Creates IAM role and service account for AWS Load Balancer Controller.
- * Note: The AWS Load Balancer Controller itself should be installed via kubectl or Helm
- * after the cluster is created. This component provides the necessary IAM permissions.
- * 
- * To use ALB instead of Classic Load Balancer:
- * 1. Install AWS Load Balancer Controller: kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
- * 2. Use Ingress resources instead of Service type: LoadBalancer
  */
 export class LoadBalancer extends pulumi.ComponentResource {
     public readonly controllerRole: aws.iam.Role;
