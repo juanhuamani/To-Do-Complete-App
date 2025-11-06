@@ -170,29 +170,43 @@ jobs:
         run: |
           aws eks update-kubeconfig --region "${{ steps.pul_outputs.outputs.region }}" --name "${{ steps.pul_outputs.outputs.cluster }}"
 
-      - name: Configure aws-auth ConfigMap (add GitHub Actions role)
+      - name: Configure aws-auth ConfigMap (add GitHub Actions role and root user)
         shell: bash
         run: |
           set -euo pipefail
           CURRENT_ROLE_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
           echo "Current role ARN: $CURRENT_ROLE_ARN"
           ROLE_NAME=$(echo $CURRENT_ROLE_ARN | awk -F'/' '{print $NF}')
-          if kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null | grep -q "$CURRENT_ROLE_ARN"; then
-            echo "Role already in aws-auth ConfigMap"
-          else
-            echo "Adding role to aws-auth ConfigMap..."
-            kubectl get configmap aws-auth -n kube-system -o yaml > /tmp/aws-auth.yaml
+          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+          ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
+          echo "Root user ARN: $ROOT_USER_ARN"
+          kubectl get configmap aws-auth -n kube-system -o yaml > /tmp/aws-auth.yaml
+          UPDATED=false
+          if ! kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null | grep -q "$CURRENT_ROLE_ARN"; then
+            echo "Adding GitHub Actions role to aws-auth ConfigMap..."
             if ! grep -q "mapRoles:" /tmp/aws-auth.yaml; then
               echo "  mapRoles: |" >> /tmp/aws-auth.yaml
-              echo "    - rolearn: $CURRENT_ROLE_ARN" >> /tmp/aws-auth.yaml
-              echo "      username: $ROLE_NAME" >> /tmp/aws-auth.yaml
-              echo "      groups:" >> /tmp/aws-auth.yaml
-              echo "        - system:masters" >> /tmp/aws-auth.yaml
-            else
-              sed -i "/mapRoles: |/a\    - rolearn: $CURRENT_ROLE_ARN\n      username: $ROLE_NAME\n      groups:\n        - system:masters" /tmp/aws-auth.yaml
             fi
+            if ! grep -q "$CURRENT_ROLE_ARN" /tmp/aws-auth.yaml; then
+              sed -i "/mapRoles: |/a\    - rolearn: $CURRENT_ROLE_ARN\n      username: $ROLE_NAME\n      groups:\n        - system:masters" /tmp/aws-auth.yaml
+              UPDATED=true
+            fi
+          fi
+          if ! kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null | grep -q "$ROOT_USER_ARN"; then
+            echo "Adding root user to aws-auth ConfigMap..."
+            if ! grep -q "mapUsers:" /tmp/aws-auth.yaml; then
+              echo "  mapUsers: |" >> /tmp/aws-auth.yaml
+            fi
+            if ! grep -q "$ROOT_USER_ARN" /tmp/aws-auth.yaml; then
+              sed -i "/mapUsers: |/a\    - userarn: $ROOT_USER_ARN\n      username: root\n      groups:\n        - system:masters" /tmp/aws-auth.yaml
+              UPDATED=true
+            fi
+          fi
+          if [ "$UPDATED" = true ]; then
             kubectl apply -f /tmp/aws-auth.yaml
-            echo "Role added to aws-auth ConfigMap successfully"
+            echo "aws-auth ConfigMap updated successfully"
+          else
+            echo "aws-auth ConfigMap already configured"
           fi
 
       - name: Create namespace todo (if not exists)
