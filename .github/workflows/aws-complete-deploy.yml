@@ -174,44 +174,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Obtener el ARN del rol actual (el que GitHub Actions está usando)
           CURRENT_ROLE_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
           echo "Current role ARN: $CURRENT_ROLE_ARN"
-          
-          # Extraer el nombre del rol del ARN
           ROLE_NAME=$(echo $CURRENT_ROLE_ARN | awk -F'/' '{print $NF}')
-          
-          # Verificar si el rol ya está en el aws-auth ConfigMap
           if kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null | grep -q "$CURRENT_ROLE_ARN"; then
             echo "Role already in aws-auth ConfigMap"
           else
             echo "Adding role to aws-auth ConfigMap..."
-            
-            # Obtener el ConfigMap actual
             kubectl get configmap aws-auth -n kube-system -o yaml > /tmp/aws-auth.yaml
-            
-            # Crear la nueva entrada del rol
-            NEW_ROLE_ENTRY="    - rolearn: $CURRENT_ROLE_ARN
-      username: $ROLE_NAME
-      groups:
-        - system:masters"
-            
-            # Agregar el rol al mapRoles
             if ! grep -q "mapRoles:" /tmp/aws-auth.yaml; then
-              # Si no existe mapRoles, agregarlo
-              cat >> /tmp/aws-auth.yaml <<EOF
-  mapRoles: |
-$NEW_ROLE_ENTRY
-EOF
+              echo "  mapRoles: |" >> /tmp/aws-auth.yaml
+              echo "    - rolearn: $CURRENT_ROLE_ARN" >> /tmp/aws-auth.yaml
+              echo "      username: $ROLE_NAME" >> /tmp/aws-auth.yaml
+              echo "      groups:" >> /tmp/aws-auth.yaml
+              echo "        - system:masters" >> /tmp/aws-auth.yaml
             else
-              # Si existe mapRoles, agregar el nuevo rol antes del cierre
-              # Insertar antes de la última línea (que suele ser el cierre del YAML)
-              sed -i '$i\'"$NEW_ROLE_ENTRY" /tmp/aws-auth.yaml
+              sed -i "/mapRoles: |/a\    - rolearn: $CURRENT_ROLE_ARN\n      username: $ROLE_NAME\n      groups:\n        - system:masters" /tmp/aws-auth.yaml
             fi
-            
-            # Aplicar el ConfigMap actualizado
             kubectl apply -f /tmp/aws-auth.yaml
-            
             echo "Role added to aws-auth ConfigMap successfully"
           fi
 
