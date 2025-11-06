@@ -103,6 +103,9 @@ export class Database extends pulumi.ComponentResource {
             {
                 parent: this,
                 dependsOn: [this.dbSecurityGroup, this.dbSubnetGroup],
+                // Ignore password changes to prevent errors when the database already exists
+                // RDS doesn't allow password updates with certain characters
+                ignoreChanges: ["password"],
             }
         );
 
