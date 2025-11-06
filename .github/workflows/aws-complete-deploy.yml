@@ -68,11 +68,14 @@ jobs:
           pulumi config set maxNodes 3 --non-interactive || true
           pulumi config set instanceType t3.small --non-interactive || true
           # dbPassword (secreto requerido)
+          # RDS solo acepta caracteres ASCII imprimibles excepto '/', '@', '"', y espacios
           if [ -n "${PULUMI_DB_PASSWORD}" ]; then
             pulumi config set --secret dbPassword "${PULUMI_DB_PASSWORD}" --non-interactive || true
           else
             echo "No se encontró PULUMI_DB_PASSWORD; generando uno aleatorio temporal" >&2
-            RAND_DB=$(openssl rand -base64 24 2>/dev/null || head -c 32 /dev/urandom | base64)
+            # Generar contraseña sin caracteres prohibidos: /, @, ", espacio
+            # Usar solo letras, números y caracteres especiales permitidos
+            RAND_DB=$(openssl rand -base64 24 2>/dev/null | tr -d '/@" ' | head -c 32 || head -c 32 /dev/urandom | tr -d '/@" ' | base64 | tr -d '/@" ')
             pulumi config set --secret dbPassword "${RAND_DB}" --non-interactive || true
           fi
           # appKey (Laravel APP_KEY requerido)
