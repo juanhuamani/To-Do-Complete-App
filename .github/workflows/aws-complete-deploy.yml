@@ -206,9 +206,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Verificar estado de los pods antes de aplicar
+          echo "=== Estado actual de los pods ==="
+          kubectl -n todo get pods || true
+          echo ""
+          # Limpiar pods en estado problemático (CrashLoopBackOff, Error, etc.)
+          echo "=== Limpiando pods problemáticos ==="
+          kubectl -n todo get pods -o json | jq -r '.items[] | select(.status.phase == "Failed" or .status.containerStatuses[]?.state.waiting.reason == "CrashLoopBackOff" or .status.containerStatuses[]?.state.waiting.reason == "ImagePullBackOff") | .metadata.name' | while read pod; do
+            if [ -n "$pod" ]; then
+              echo "Eliminando pod problemático: $pod"
+              kubectl -n todo delete pod "$pod" --force --grace-period=0 || true
+            fi
+          done
+          echo ""
+          # Aplicar deployment
           kubectl apply -f k8s-aws/backend-deployment.yaml
           kubectl -n todo set image deployment/backend backend="${{ steps.pul_outputs.outputs.backend_repo }}:latest" --record=true
-          kubectl -n todo rollout status deployment/backend --timeout=5m
+          # Esperar con timeout más corto y mejor manejo de errores
+          if ! kubectl -n todo rollout status deployment/backend --timeout=3m; then
+            echo "=== Rollout falló, verificando estado ==="
+            kubectl -n todo get pods -l app=backend
+            kubectl -n todo describe deployment backend | tail -20
+            # Intentar forzar el rollout eliminando pods antiguos
+            echo "=== Intentando forzar rollout ==="
+            kubectl -n todo get pods -l app=backend -o json | jq -r '.items[] | select(.metadata.labels."pod-template-hash" != (.metadata.labels."pod-template-hash" // "")) | .metadata.name' | while read pod; do
+              if [ -n "$pod" ]; then
+                echo "Eliminando pod antiguo: $pod"
+                kubectl -n todo delete pod "$pod" --force --grace-period=0 || true
+              fi
+            done
+            # Esperar de nuevo
+            kubectl -n todo rollout status deployment/backend --timeout=2m || true
+          fi
           kubectl apply -f k8s-aws/frontend-deployment.yaml
           kubectl -n todo set image deployment/frontend frontend="${{ steps.pul_outputs.outputs.frontend_repo }}:latest" --record=true
           kubectl -n todo rollout status deployment/frontend --timeout=5m
