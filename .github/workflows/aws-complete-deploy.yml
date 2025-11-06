@@ -179,10 +179,11 @@ jobs:
           set -euo pipefail
           CURRENT_ROLE_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
           echo "Current role ARN: $CURRENT_ROLE_ARN"
-          # Extraer el ARN del rol base (sin el assumed-role)
-          BASE_ROLE_ARN=$(echo $CURRENT_ROLE_ARN | sed 's|:assumed-role/.*|:role/github-actions-eks-ecr|')
-          ROLE_NAME=$(echo $BASE_ROLE_ARN | awk -F'/' '{print $NF}')
+          # Extraer el ARN del rol base (convertir de assumed-role a role IAM)
+          # Formato: arn:aws:sts::ACCOUNT:assumed-role/ROLE_NAME/SESSION -> arn:aws:iam::ACCOUNT:role/ROLE_NAME
           ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+          ROLE_NAME=$(echo $CURRENT_ROLE_ARN | awk -F'/' '{print $(NF-1)}')
+          BASE_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
           ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
           echo "Base role ARN: $BASE_ROLE_ARN"
           echo "Root user ARN: $ROOT_USER_ARN"
@@ -195,7 +196,7 @@ jobs:
           # Agregar el rol de GitHub Actions si no existe
           if [ -z "$MAP_ROLES" ] || ! echo "$MAP_ROLES" | grep -q "$BASE_ROLE_ARN"; then
             echo "Adding GitHub Actions role to aws-auth ConfigMap..."
-            NEW_ROLE_ENTRY=$(printf "- rolearn: %s\n      username: %s\n      groups:\n        - system:masters" "$BASE_ROLE_ARN" "$ROLE_NAME")
+            NEW_ROLE_ENTRY=$(printf -- "- rolearn: %s\n      username: %s\n      groups:\n        - system:masters" "$BASE_ROLE_ARN" "$ROLE_NAME")
             if [ -z "$MAP_ROLES" ]; then
               MAP_ROLES="$NEW_ROLE_ENTRY"
             else
@@ -206,7 +207,7 @@ jobs:
           # Agregar el usuario root si no existe
           if [ -z "$MAP_USERS" ] || ! echo "$MAP_USERS" | grep -q "$ROOT_USER_ARN"; then
             echo "Adding root user to aws-auth ConfigMap..."
-            NEW_USER_ENTRY=$(printf "- userarn: %s\n      username: root\n      groups:\n        - system:masters" "$ROOT_USER_ARN")
+            NEW_USER_ENTRY=$(printf -- "- userarn: %s\n      username: root\n      groups:\n        - system:masters" "$ROOT_USER_ARN")
             if [ -z "$MAP_USERS" ]; then
               MAP_USERS="$NEW_USER_ENTRY"
             else
