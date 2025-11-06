@@ -65,6 +65,22 @@ jobs:
           sleep 5
           echo "Ready to proceed with destroy"
 
+      - name: Remove problematic Kubernetes resources from state
+        working-directory: pulumi-aws
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ env.PULUMI_ACCESS_TOKEN }}
+        run: |
+          set +e
+          echo "Removing problematic Kubernetes resources from state..."
+          # Intentar eliminar el deployment de cluster-autoscaler del estado
+          # Esto evita problemas con finalizers o recursos inalcanzables
+          pulumi state delete 'urn:pulumi:dev::todo-aws::kubernetes:apps/v1:Deployment::cluster-autoscaler' --yes 2>/dev/null || echo "Resource not found in state or already deleted"
+          # También intentar eliminar otros recursos de Kubernetes problemáticos
+          pulumi state delete 'urn:pulumi:dev::todo-aws::kubernetes:core/v1:ServiceAccount::aws-load-balancer-controller' --yes 2>/dev/null || echo "ServiceAccount not found"
+          pulumi state delete 'urn:pulumi:dev::todo-aws::kubernetes:core/v1:Secret::mysql-secret' --yes 2>/dev/null || echo "Secret not found"
+          pulumi state delete 'urn:pulumi:dev::todo-aws::kubernetes:core/v1:ConfigMap::backend-config' --yes 2>/dev/null || echo "ConfigMap not found"
+          echo "Problematic resources removed from state"
+
       - name: Destroy infrastructure
         working-directory: pulumi-aws
         env:
