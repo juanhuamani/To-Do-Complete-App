@@ -68,14 +68,11 @@ jobs:
           pulumi config set maxNodes 3 --non-interactive || true
           pulumi config set instanceType t3.small --non-interactive || true
           # dbPassword (secreto requerido)
-          # RDS solo acepta caracteres ASCII imprimibles excepto '/', '@', '"', y espacios
           if [ -n "${PULUMI_DB_PASSWORD}" ]; then
             pulumi config set --secret dbPassword "${PULUMI_DB_PASSWORD}" --non-interactive || true
           else
             echo "No se encontró PULUMI_DB_PASSWORD; generando uno aleatorio temporal" >&2
-            # Generar contraseña sin caracteres prohibidos: /, @, ", espacio
-            # Usar solo letras, números y caracteres especiales permitidos
-            RAND_DB=$(openssl rand -base64 24 2>/dev/null | tr -d '/@" ' | head -c 32 || head -c 32 /dev/urandom | tr -d '/@" ' | base64 | tr -d '/@" ')
+            RAND_DB=$(openssl rand -base64 24 2>/dev/null || head -c 32 /dev/urandom | base64)
             pulumi config set --secret dbPassword "${RAND_DB}" --non-interactive || true
           fi
           # appKey (Laravel APP_KEY requerido)
@@ -173,87 +170,8 @@ jobs:
         run: |
           aws eks update-kubeconfig --region "${{ steps.pul_outputs.outputs.region }}" --name "${{ steps.pul_outputs.outputs.cluster }}"
 
-      - name: Configure aws-auth ConfigMap (add GitHub Actions role and root user)
-        shell: bash
-        run: |
-          set -euo pipefail
-          CURRENT_ROLE_ARN=$(aws sts get-caller-identity --query 'Arn' --output text)
-          echo "Current role ARN: $CURRENT_ROLE_ARN"
-          # Extraer el ARN del rol base (convertir de assumed-role a role IAM)
-          # Formato: arn:aws:sts::ACCOUNT:assumed-role/ROLE_NAME/SESSION -> arn:aws:iam::ACCOUNT:role/ROLE_NAME
-          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-          ROLE_NAME=$(echo $CURRENT_ROLE_ARN | awk -F'/' '{print $(NF-1)}')
-          BASE_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
-          ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
-          echo "Base role ARN: $BASE_ROLE_ARN"
-          echo "Root user ARN: $ROOT_USER_ARN"
-          # Obtener el ConfigMap actual en JSON
-          kubectl get configmap aws-auth -n kube-system -o json > /tmp/aws-auth.json
-          # Leer los valores actuales
-          MAP_ROLES=$(jq -r '.data.mapRoles // ""' /tmp/aws-auth.json)
-          MAP_USERS=$(jq -r '.data.mapUsers // ""' /tmp/aws-auth.json)
-          UPDATED=false
-          # Agregar el rol de GitHub Actions si no existe
-          if [ -z "$MAP_ROLES" ] || ! echo "$MAP_ROLES" | grep -q "$BASE_ROLE_ARN"; then
-            echo "Adding GitHub Actions role to aws-auth ConfigMap..."
-            NEW_ROLE_ENTRY=$(printf -- "- rolearn: %s\n      username: %s\n      groups:\n        - system:masters" "$BASE_ROLE_ARN" "$ROLE_NAME")
-            if [ -z "$MAP_ROLES" ]; then
-              MAP_ROLES="$NEW_ROLE_ENTRY"
-            else
-              MAP_ROLES="$MAP_ROLES"$'\n'"$NEW_ROLE_ENTRY"
-            fi
-            UPDATED=true
-          fi
-          # Agregar el usuario root si no existe
-          if [ -z "$MAP_USERS" ] || ! echo "$MAP_USERS" | grep -q "$ROOT_USER_ARN"; then
-            echo "Adding root user to aws-auth ConfigMap..."
-            NEW_USER_ENTRY=$(printf -- "- userarn: %s\n      username: root\n      groups:\n        - system:masters" "$ROOT_USER_ARN")
-            if [ -z "$MAP_USERS" ]; then
-              MAP_USERS="$NEW_USER_ENTRY"
-            else
-              MAP_USERS="$MAP_USERS"$'\n'"$NEW_USER_ENTRY"
-            fi
-            UPDATED=true
-          fi
-          # Actualizar el ConfigMap si hubo cambios usando kubectl patch
-          if [ "$UPDATED" = true ]; then
-            # Usar kubectl patch para actualizar solo los campos necesarios
-            if [ -n "$MAP_ROLES" ]; then
-              echo "$MAP_ROLES" > /tmp/map-roles.txt
-              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapRoles\":$(jq -Rs . /tmp/map-roles.txt)}}"
-            fi
-            if [ -n "$MAP_USERS" ]; then
-              echo "$MAP_USERS" > /tmp/map-users.txt
-              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapUsers\":$(jq -Rs . /tmp/map-users.txt)}}"
-            fi
-            echo "aws-auth ConfigMap updated successfully"
-          else
-            echo "aws-auth ConfigMap already configured"
-          fi
-
       - name: Create namespace todo (if not exists)
         run: kubectl create namespace todo || true
-
-      - name: Create/Update MySQL secret
-        shell: bash
-        working-directory: pulumi-aws
-        run: |
-          set -euo pipefail
-          DB_USERNAME=$(pulumi config get dbUsername || echo "admin")
-          DB_PASSWORD=$(pulumi config get --secret dbPassword || echo "")
-          DB_HOST=$(pulumi stack output dbHost)
-          if [ -z "$DB_PASSWORD" ]; then
-            echo "Error: DB_PASSWORD is empty. Make sure dbPassword is set in Pulumi config." >&2
-            exit 1
-          fi
-          # Delete existing secret if it exists
-          kubectl -n todo delete secret mysql-secret || true
-          # Create the secret
-          kubectl -n todo create secret generic mysql-secret \
-            --from-literal=mysql-user="$DB_USERNAME" \
-            --from-literal=mysql-password="$DB_PASSWORD" \
-            --from-literal=mysql-root-password="$DB_PASSWORD" \
-            --from-literal=mysql-host="$DB_HOST"
 
       - name: Create/Update ECR pull secret
         shell: bash

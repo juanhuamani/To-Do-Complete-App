@@ -103,11 +103,6 @@ export class Database extends pulumi.ComponentResource {
             {
                 parent: this,
                 dependsOn: [this.dbSecurityGroup, this.dbSubnetGroup],
-                // Ignore changes to engineVersion and password if the database already exists
-                // This prevents errors when:
-                // - The database already has a newer version (downgrades are not allowed)
-                // - The password contains characters that RDS doesn't accept
-                ignoreChanges: ["engineVersion", "password"],
             }
         );
 
