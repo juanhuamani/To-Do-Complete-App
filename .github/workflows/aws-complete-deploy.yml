@@ -167,24 +167,22 @@ jobs:
       - name: Create namespace todo (if not exists)
         run: kubectl create namespace todo || true
 
-      - name: Create/Update MySQL secret
+      - name: Wait for MySQL secret (created by Pulumi)
         shell: bash
-        working-directory: pulumi-aws
         run: |
           set -euo pipefail
-          DB_USERNAME=$(pulumi config get dbUsername || echo "admin")
-          DB_PASSWORD=$(pulumi config get --secret dbPassword || echo "")
-          DB_HOST=$(pulumi stack output dbHost)
-          if [ -z "$DB_PASSWORD" ]; then
-            echo "Error: DB_PASSWORD is empty. Make sure dbPassword is set in Pulumi config." >&2
-            exit 1
-          fi
-          kubectl -n todo delete secret mysql-secret || true
-          kubectl -n todo create secret generic mysql-secret \
-            --from-literal=mysql-user="$DB_USERNAME" \
-            --from-literal=mysql-password="$DB_PASSWORD" \
-            --from-literal=mysql-root-password="$DB_PASSWORD" \
-            --from-literal=mysql-host="$DB_HOST"
+          echo "Waiting for mysql-secret to be created by Pulumi..."
+          for i in {1..30}; do
+            if kubectl -n todo get secret mysql-secret >/dev/null 2>&1; then
+              echo "mysql-secret found!"
+              kubectl -n todo get secret mysql-secret
+              exit 0
+            fi
+            echo "Waiting for mysql-secret... ($i/30)"
+            sleep 2
+          done
+          echo "Error: mysql-secret not found after 60 seconds" >&2
+          exit 1
 
       - name: Create/Update ECR pull secret
         shell: bash
