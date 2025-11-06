@@ -40,7 +40,6 @@ export class Registry extends pulumi.ComponentResource {
                 { parent: this }
             );
         } else {
-            // Crear repos nuevos
             this.backendRepo = new aws.ecr.Repository(
                 `${config.projectName}-backend-repo`,
                 {

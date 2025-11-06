@@ -164,25 +164,44 @@ jobs:
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --region "${{ steps.pul_outputs.outputs.region }}" --name "${{ steps.pul_outputs.outputs.cluster }}"
-      - name: Create namespace todo (if not exists)
-        run: kubectl create namespace todo || true
-
-      - name: Wait for MySQL secret (created by Pulumi)
+      
+      - name: Configure aws-auth ConfigMap (add root user for local access)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Waiting for mysql-secret to be created by Pulumi..."
-          for i in {1..30}; do
-            if kubectl -n todo get secret mysql-secret >/dev/null 2>&1; then
-              echo "mysql-secret found!"
-              kubectl -n todo get secret mysql-secret
-              exit 0
+          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+          ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
+          echo "Root user ARN: $ROOT_USER_ARN"
+          # Obtener el ConfigMap actual en JSON
+          kubectl get configmap aws-auth -n kube-system -o json > /tmp/aws-auth.json 2>/dev/null || echo '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"aws-auth","namespace":"kube-system"},"data":{}}' > /tmp/aws-auth.json
+          # Leer los valores actuales
+          MAP_ROLES=$(jq -r '.data.mapRoles // ""' /tmp/aws-auth.json)
+          MAP_USERS=$(jq -r '.data.mapUsers // ""' /tmp/aws-auth.json)
+          UPDATED=false
+          # Agregar el usuario root si no existe
+          if [ -z "$MAP_USERS" ] || ! echo "$MAP_USERS" | grep -q "$ROOT_USER_ARN"; then
+            echo "Adding root user to aws-auth ConfigMap..."
+            NEW_USER_ENTRY=$(printf -- "- userarn: %s\n      username: root\n      groups:\n        - system:masters" "$ROOT_USER_ARN")
+            if [ -z "$MAP_USERS" ]; then
+              MAP_USERS="$NEW_USER_ENTRY"
+            else
+              MAP_USERS="$MAP_USERS"$'\n'"$NEW_USER_ENTRY"
             fi
-            echo "Waiting for mysql-secret... ($i/30)"
-            sleep 2
-          done
-          echo "Error: mysql-secret not found after 60 seconds" >&2
-          exit 1
+            UPDATED=true
+          fi
+          # Actualizar el ConfigMap si hubo cambios usando kubectl patch
+          if [ "$UPDATED" = true ]; then
+            if [ -n "$MAP_USERS" ]; then
+              echo "$MAP_USERS" > /tmp/map-users.txt
+              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapUsers\":$(jq -Rs . /tmp/map-users.txt)}}"
+            fi
+            echo "aws-auth ConfigMap updated successfully"
+          else
+            echo "aws-auth ConfigMap already configured"
+          fi
+      
+      - name: Create namespace todo (if not exists)
+        run: kubectl create namespace todo || true
 
       - name: Create/Update ECR pull secret
         shell: bash
@@ -202,45 +221,13 @@ jobs:
           kubectl apply -f k8s-aws/frontend-configmap.yaml
           kubectl apply -f k8s-aws/backend-service.yaml
           kubectl apply -f k8s-aws/frontend-service.yaml
-      - name: Clean up stuck pods before deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Limpiando pods problemáticos antes del deployment ==="
-          # Eliminar todos los pods en estado Pending o Terminating
-          kubectl -n todo get pods -o json | jq -r '.items[] | select(.status.phase == "Pending" or .status.phase == "Failed" or (.metadata.deletionTimestamp != null)) | .metadata.name' | while read pod; do
-            if [ -n "$pod" ]; then
-              echo "Eliminando pod problemático: $pod"
-              kubectl -n todo delete pod "$pod" --force --grace-period=0 || true
-            fi
-          done
-          # Esperar un poco para que los pods se eliminen
-          sleep 5
-          echo "=== Estado después de limpieza ==="
-          kubectl -n todo get pods || true
-
       - name: Apply deployments and set images
         shell: bash
         run: |
           set -euo pipefail
-          # Aplicar deployment de backend
           kubectl apply -f k8s-aws/backend-deployment.yaml
           kubectl -n todo set image deployment/backend backend="${{ steps.pul_outputs.outputs.backend_repo }}:latest" --record=true
-          # Esperar el rollout con mejor manejo de errores
-          if ! kubectl -n todo rollout status deployment/backend --timeout=3m; then
-            echo "=== Rollout falló, limpiando y reintentando ==="
-            # Eliminar todos los pods en estado problemático
-            kubectl -n todo get pods -l app=backend -o json | jq -r '.items[] | select(.status.phase == "Pending" or .status.phase == "Failed" or (.metadata.deletionTimestamp != null) or (.status.containerStatuses[]?.state.waiting.reason == "CrashLoopBackOff") or (.status.containerStatuses[]?.state.waiting.reason == "ImagePullBackOff")) | .metadata.name' | while read pod; do
-              if [ -n "$pod" ]; then
-                echo "Eliminando pod problemático: $pod"
-                kubectl -n todo delete pod "$pod" --force --grace-period=0 || true
-              fi
-            done
-            sleep 5
-            # Esperar de nuevo
-            kubectl -n todo rollout status deployment/backend --timeout=2m || true
-          fi
-          # Aplicar deployment de frontend
+          kubectl -n todo rollout status deployment/backend --timeout=5m
           kubectl apply -f k8s-aws/frontend-deployment.yaml
           kubectl -n todo set image deployment/frontend frontend="${{ steps.pul_outputs.outputs.frontend_repo }}:latest" --record=true
           kubectl -n todo rollout status deployment/frontend --timeout=5m
