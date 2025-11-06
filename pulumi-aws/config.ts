@@ -77,7 +77,7 @@ export class InfrastructureConfig {
         
         // Database configuration
         this.dbEngine = config.get("dbEngine") || "mysql";
-        this.dbEngineVersion = config.get("dbEngineVersion") || "8.0.37";
+        this.dbEngineVersion = config.get("dbEngineVersion") || "8.0.40";
         this.dbInstanceClass = config.get("dbInstanceClass") || "db.t3.micro";
         this.dbAllocatedStorage = config.getNumber("dbAllocatedStorage") || 20;
         this.dbStorageType = config.get("dbStorageType") || "gp2";

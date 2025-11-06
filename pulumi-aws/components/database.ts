@@ -94,6 +94,8 @@ export class Database extends pulumi.ComponentResource {
                 // High availability: Multi-AZ deployment
                 // Ensures the database is resilient and not a single point of failure (SPOF)
                 multiAz: config.dbMultiAz,
+                // Apply changes immediately (set to false to apply during maintenance window)
+                applyImmediately: false,
                 tags: {
                     Name: `${config.projectName}-mysql`,
                 },
@@ -101,6 +103,9 @@ export class Database extends pulumi.ComponentResource {
             {
                 parent: this,
                 dependsOn: [this.dbSecurityGroup, this.dbSubnetGroup],
+                // Ignore changes to engineVersion if it's a downgrade
+                // This prevents errors when the database already has a newer version
+                ignoreChanges: ["engineVersion"],
             }
         );
 
