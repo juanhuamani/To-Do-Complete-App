@@ -85,7 +85,8 @@ jobs:
           pulumi stack export 2>/dev/null > /tmp/stack.json
           if [ -f /tmp/stack.json ] && [ -s /tmp/stack.json ]; then
             echo "Extracting Kubernetes resource URNs from stack export..."
-            jq -r '.deployment.resources[]? | select(.urn | contains("kubernetes:")) | .urn' /tmp/stack.json 2>/dev/null | while read URN; do
+            # Excluir providers de Kubernetes, solo eliminar recursos reales de Kubernetes
+            jq -r '.deployment.resources[]? | select(.urn | contains("kubernetes:") and (contains("pulumi:providers") | not)) | .urn' /tmp/stack.json 2>/dev/null | while read URN; do
               if [ -n "$URN" ]; then
                 echo "Removing Kubernetes resource: $URN"
                 pulumi state delete "$URN" --yes 2>/dev/null && echo "✓ Deleted: $URN" || echo "⚠ Failed or already removed: $URN"
@@ -109,6 +110,166 @@ jobs:
             pulumi state delete "$URN" --yes 2>/dev/null && echo "✓ Deleted: $URN" || echo "⚠ Not found: $URN"
           done
           echo "Kubernetes resources removal completed"
+
+      - name: Clean up AWS residual resources
+        run: |
+          set +e
+          echo "Cleaning up residual AWS resources that may block VPC deletion..."
+          
+          # Obtener el nombre del cluster desde Pulumi outputs
+          CLUSTER_NAME=$(pulumi stack output clusterName --cwd pulumi-aws 2>/dev/null | tr -d '"' || echo "")
+          VPC_ID=""
+          
+          # Método 1: Obtener VPC ID desde el cluster de EKS
+          if [ -n "$CLUSTER_NAME" ]; then
+            echo "Cluster name: $CLUSTER_NAME"
+            VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query "cluster.resourcesVpcConfig.vpcId" --output text 2>/dev/null || echo "")
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+              echo "✓ VPC ID from cluster: $VPC_ID"
+            fi
+          fi
+          
+          # Método 2: Si no encontramos VPC ID, buscar por nombre de cluster en tags de VPC
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
+            if [ -n "$CLUSTER_NAME" ]; then
+              echo "Trying to find VPC by cluster name in tags..."
+              VPC_ID=$(aws ec2 describe-vpcs \
+                --filters "Name=tag:Name,Values=*${CLUSTER_NAME}*" "Name=tag:kubernetes.io/cluster/${CLUSTER_NAME},Values=shared" \
+                --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
+              if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+                echo "✓ VPC ID from tags: $VPC_ID"
+              fi
+            fi
+          fi
+          
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
+            echo "⚠ Could not determine VPC ID. Will try to clean up resources by cluster name and region..."
+          else
+            echo "Using VPC ID: $VPC_ID"
+          fi
+          
+          # 1. Eliminar Load Balancers de Kubernetes (ALB/NLB)
+          echo ""
+          echo "Step 1: Checking for Load Balancers..."
+          if [ -n "$CLUSTER_NAME" ]; then
+            LB_ARNS=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, '$CLUSTER_NAME') || contains(LoadBalancerName, 'k8s-') || contains(LoadBalancerName, 'todo-')].LoadBalancerArn" --output text 2>/dev/null || echo "")
+          else
+            LB_ARNS=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, 'k8s-') || contains(LoadBalancerName, 'todo-')].LoadBalancerArn" --output text 2>/dev/null || echo "")
+          fi
+          
+          if [ -n "$LB_ARNS" ] && [ "$LB_ARNS" != "None" ]; then
+            echo "Found Load Balancers: $LB_ARNS"
+            for LB_ARN in $LB_ARNS; do
+              echo "  → Deleting Load Balancer: $LB_ARN"
+              # Eliminar listeners primero
+              LISTENER_ARNS=$(aws elbv2 describe-listeners --load-balancer-arn "$LB_ARN" --query "Listeners[].ListenerArn" --output text 2>/dev/null || echo "")
+              for LISTENER_ARN in $LISTENER_ARNS; do
+                aws elbv2 delete-listener --listener-arn "$LISTENER_ARN" 2>/dev/null || true
+              done
+              # Eliminar target groups asociados
+              TG_ARNS=$(aws elbv2 describe-target-groups --load-balancer-arn "$LB_ARN" --query "TargetGroups[].TargetGroupArn" --output text 2>/dev/null || echo "")
+              for TG_ARN in $TG_ARNS; do
+                aws elbv2 delete-target-group --target-group-arn "$TG_ARN" 2>/dev/null || true
+              done
+              aws elbv2 delete-load-balancer --load-balancer-arn "$LB_ARN" 2>/dev/null && echo "    ✓ Deleted" || echo "    ⚠ Failed or already deleted"
+            done
+            echo "Waiting 30 seconds for Load Balancers to be fully deleted..."
+            sleep 30
+          else
+            echo "  ✓ No Load Balancers found"
+          fi
+          
+          # 2. Desasociar y liberar Elastic IPs (debe hacerse ANTES de eliminar Network Interfaces)
+          echo ""
+          echo "Step 2: Checking for Elastic IPs..."
+          if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+            # Buscar todas las Elastic IPs en la VPC
+            EIP_INFO=$(aws ec2 describe-addresses \
+              --filters "Name=domain,Values=vpc" \
+              --query "Addresses[?NetworkInterfaceId!=null]" --output json 2>/dev/null || echo "[]")
+            
+            EIP_COUNT=$(echo "$EIP_INFO" | jq '. | length' 2>/dev/null || echo "0")
+            if [ "$EIP_COUNT" -gt 0 ]; then
+              echo "Found $EIP_COUNT Elastic IP(s) with network interfaces"
+              echo "$EIP_INFO" | jq -r '.[] | "\(.AllocationId)|\(.AssociationId)"' | while IFS='|' read -r ALLOC_ID ASSOC_ID; do
+                if [ -n "$ALLOC_ID" ] && [ "$ALLOC_ID" != "null" ]; then
+                  # Verificar si la ENI asociada está en nuestra VPC
+                  ENI_ID=$(aws ec2 describe-addresses --allocation-ids "$ALLOC_ID" --query "Addresses[0].NetworkInterfaceId" --output text 2>/dev/null || echo "")
+                  if [ -n "$ENI_ID" ] && [ "$ENI_ID" != "None" ]; then
+                    ENI_VPC=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].VpcId" --output text 2>/dev/null || echo "")
+                    if [ "$ENI_VPC" == "$VPC_ID" ]; then
+                      echo "  → Processing Elastic IP: $ALLOC_ID"
+                      if [ -n "$ASSOC_ID" ] && [ "$ASSOC_ID" != "null" ]; then
+                        echo "    → Disassociating: $ASSOC_ID"
+                        aws ec2 disassociate-address --association-id "$ASSOC_ID" 2>/dev/null && echo "      ✓ Disassociated" || echo "      ⚠ Failed"
+                        sleep 1
+                      fi
+                      echo "    → Releasing: $ALLOC_ID"
+                      aws ec2 release-address --allocation-id "$ALLOC_ID" 2>/dev/null && echo "      ✓ Released" || echo "      ⚠ Failed"
+                    fi
+                  fi
+                fi
+              done
+            fi
+            
+            # También buscar Elastic IPs no asociadas
+            UNASSOC_EIPS=$(aws ec2 describe-addresses \
+              --filters "Name=domain,Values=vpc" \
+              --query "Addresses[?AssociationId==null].AllocationId" \
+              --output text 2>/dev/null || echo "")
+            
+            if [ -n "$UNASSOC_EIPS" ] && [ "$UNASSOC_EIPS" != "None" ]; then
+              echo "Found unassociated Elastic IPs: $UNASSOC_EIPS"
+              for EIP_ALLOC in $UNASSOC_EIPS; do
+                echo "  → Releasing unassociated Elastic IP: $EIP_ALLOC"
+                aws ec2 release-address --allocation-id "$EIP_ALLOC" 2>/dev/null && echo "    ✓ Released" || echo "    ⚠ Failed"
+              done
+            fi
+            
+            if [ "$EIP_COUNT" -eq 0 ] && [ -z "$UNASSOC_EIPS" ]; then
+              echo "  ✓ No Elastic IPs found"
+            fi
+            sleep 5
+          else
+            echo "  ⚠ Cannot check Elastic IPs without VPC ID"
+          fi
+          
+          # 3. Eliminar Network Interfaces residuales
+          echo ""
+          echo "Step 3: Checking for Network Interfaces..."
+          if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+            # Buscar todas las network interfaces en la VPC (excepto las que están en uso por instancias activas)
+            ENI_IDS=$(aws ec2 describe-network-interfaces \
+              --filters "Name=vpc-id,Values=$VPC_ID" \
+              --query "NetworkInterfaces[?Status!='in-use' || Attachment.Status!='attached'].NetworkInterfaceId" \
+              --output text 2>/dev/null || echo "")
+            
+            if [ -n "$ENI_IDS" ] && [ "$ENI_IDS" != "None" ]; then
+              echo "Found Network Interfaces to clean: $ENI_IDS"
+              for ENI_ID in $ENI_IDS; do
+                echo "  → Processing Network Interface: $ENI_ID"
+                # Obtener información de la ENI
+                ATTACHMENT_ID=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].Attachment.AttachmentId" --output text 2>/dev/null || echo "")
+                if [ -n "$ATTACHMENT_ID" ] && [ "$ATTACHMENT_ID" != "None" ] && [ "$ATTACHMENT_ID" != "null" ]; then
+                  echo "    → Detaching: $ATTACHMENT_ID"
+                  aws ec2 detach-network-interface --attachment-id "$ATTACHMENT_ID" --force 2>/dev/null && echo "      ✓ Detached" || echo "      ⚠ Failed or already detached"
+                  sleep 2
+                fi
+                echo "    → Deleting: $ENI_ID"
+                aws ec2 delete-network-interface --network-interface-id "$ENI_ID" 2>/dev/null && echo "      ✓ Deleted" || echo "      ⚠ Failed or in use"
+                sleep 1
+              done
+              sleep 10
+            else
+              echo "  ✓ No Network Interfaces found to clean"
+            fi
+          else
+            echo "  ⚠ Cannot check Network Interfaces without VPC ID"
+          fi
+          
+          echo ""
+          echo "✓ Cleanup completed. Waiting 15 seconds for AWS to process all deletions..."
+          sleep 15
 
       - name: Destroy infrastructure
         working-directory: pulumi-aws
