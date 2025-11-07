@@ -30,15 +30,12 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Get cluster name from Pulumi
+      - name: Get cluster name
         id: get_cluster
-        working-directory: pulumi-aws
         run: |
-          # Intentar obtener el nombre del cluster desde Pulumi outputs
-          # Si no funciona, usar un valor por defecto
-          CLUSTER_NAME=$(pulumi stack output clusterName 2>/dev/null || echo "todo-cluster-1b2c4b1")
-          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
-          echo "cluster=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          # Usar el nombre del cluster directamente
+          echo "cluster_name=todo-cluster-1b2c4b1" >> $GITHUB_OUTPUT
+          echo "cluster=todo-cluster-1b2c4b1" >> $GITHUB_OUTPUT
 
       - name: Update kubeconfig
         run: |
@@ -72,40 +69,35 @@ jobs:
           fi
           echo ""
           
-          # Crear el ConfigMap completo
+          # Crear el ConfigMap completo usando jq para evitar problemas con heredoc en YAML
           echo "=== Creating new ConfigMap ==="
           if [ -n "$MAP_ROLES" ]; then
             # Si hay mapRoles existentes, preservarlos
-            cat > /tmp/aws-auth.yaml <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: aws-auth
-  namespace: kube-system
-data:
-  mapRoles: |
-$(echo "$MAP_ROLES" | sed 's/^/    /')
-  mapUsers: |
-    - userarn: arn:aws:iam::895416262297:root
-      username: root
-      groups:
-        - system:masters
-EOF
+            jq -n \
+              --arg mapRoles "$MAP_ROLES" \
+              '{
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                  "name": "aws-auth",
+                  "namespace": "kube-system"
+                },
+                "data": {
+                  "mapRoles": $mapRoles,
+                  "mapUsers": "- userarn: arn:aws:iam::895416262297:root\n      username: root\n      groups:\n        - system:masters\n"
+                }
+              }' > /tmp/aws-auth.json
+            # Convertir JSON a YAML
+            kubectl create configmap aws-auth --from-file=/tmp/aws-auth.json --dry-run=client -o yaml | \
+              sed 's/aws-auth.json/data/' | \
+              jq -r '.data.data' | \
+              jq -r '.data | to_entries[] | "\(.key): |\n\(.value | split("\n") | map("  \(.)") | join("\n"))"' > /tmp/aws-auth.yaml || {
+              # Fallback: crear manualmente
+              printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: aws-auth\n  namespace: kube-system\ndata:\n  mapRoles: |\n%s\n  mapUsers: |\n    - userarn: arn:aws:iam::895416262297:root\n      username: root\n      groups:\n        - system:masters\n' "$(echo "$MAP_ROLES" | sed 's/^/    /')" > /tmp/aws-auth.yaml
+            }
           else
             # Si no hay mapRoles, solo crear mapUsers
-            cat > /tmp/aws-auth.yaml <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: aws-auth
-  namespace: kube-system
-data:
-  mapUsers: |
-    - userarn: arn:aws:iam::895416262297:root
-      username: root
-      groups:
-        - system:masters
-EOF
+            printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: aws-auth\n  namespace: kube-system\ndata:\n  mapUsers: |\n    - userarn: arn:aws:iam::895416262297:root\n      username: root\n      groups:\n        - system:masters\n' > /tmp/aws-auth.yaml
           fi
           
           echo "ConfigMap to apply:"
