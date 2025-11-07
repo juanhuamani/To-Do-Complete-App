@@ -67,10 +67,39 @@ jobs:
         run: |
           set +e
           echo "Checking for in-progress operations..."
-          # Intentar cancelar cualquier operación en progreso
-          pulumi cancel || echo "No operations to cancel or already completed"
-          # Esperar un poco para que se complete la cancelación
-          sleep 5
+          
+          # Intentar cancelar cualquier operación en progreso (múltiples intentos)
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Checking for in-progress operations..."
+            
+            # Verificar si hay una operación en progreso
+            PULUMI_OUTPUT=$(pulumi stack --show-urns 2>&1)
+            if echo "$PULUMI_OUTPUT" | grep -q "409\|Conflict\|in progress"; then
+              echo "Found in-progress operation. Attempting to cancel..."
+              pulumi cancel --yes 2>&1 || echo "Cancel command executed (may have failed if no operation exists)"
+              
+              # Esperar más tiempo para que la cancelación se complete
+              echo "Waiting 15 seconds for cancellation to complete..."
+              sleep 15
+            else
+              echo "No in-progress operations detected."
+              break
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+          done
+          
+          # Verificación final: intentar cancelar una vez más
+          echo "Final cancellation attempt..."
+          pulumi cancel --yes 2>&1 || echo "No operations to cancel"
+          
+          # Esperar un tiempo adicional para asegurar que todo está limpio
+          echo "Waiting 20 seconds before proceeding with destroy..."
+          sleep 20
+          
           echo "Ready to proceed with destroy"
 
       - name: Remove all Kubernetes resources from state
@@ -455,26 +484,63 @@ jobs:
         run: |
           set +e
           echo "Starting destroy operation..."
-          pulumi destroy --yes --skip-preview
-          EXIT_CODE=$?
           
-          # Si falla por dependencias, intentar limpiar una vez más y reintentar
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "Destroy failed with exit code $EXIT_CODE"
-            echo "Checking if it's a dependency error..."
+          # Verificar una última vez que no haya operaciones en progreso
+          echo "Final check for in-progress operations..."
+          pulumi cancel --yes 2>&1 || echo "No operations to cancel"
+          sleep 10
+          
+          # Intentar el destroy con múltiples reintentos
+          MAX_DESTROY_RETRIES=3
+          RETRY_COUNT=0
+          EXIT_CODE=1
+          
+          while [ $RETRY_COUNT -lt $MAX_DESTROY_RETRIES ] && [ $EXIT_CODE -ne 0 ]; do
+            echo ""
+            echo "Destroy attempt $((RETRY_COUNT + 1))/$MAX_DESTROY_RETRIES..."
             
-            if [ $EXIT_CODE -eq 255 ]; then
-              # Error 404 significa que el stack no existe o ya fue eliminado
-              echo "Stack may have already been destroyed (404 error). Checking..."
-              pulumi stack select dev 2>&1 | grep -q "404" && echo "Stack already destroyed. Exiting successfully." && exit 0
+            pulumi destroy --yes --skip-preview 2>&1 | tee /tmp/destroy-output.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "✓ Destroy completed successfully!"
+              break
             fi
             
-            # Si el error es por dependencias (DependencyViolation), esperar un poco y reintentar
-            echo "Waiting 30 seconds and retrying destroy..."
-            sleep 30
-            echo "Retrying destroy..."
-            pulumi destroy --yes --skip-preview
-            EXIT_CODE=$?
+            # Verificar el tipo de error
+            DESTROY_OUTPUT=$(cat /tmp/destroy-output.txt)
+            
+            if echo "$DESTROY_OUTPUT" | grep -q "409\|Conflict\|in progress"; then
+              echo "⚠ Conflict error detected. Another operation may be in progress."
+              echo "Canceling any operations and waiting..."
+              pulumi cancel --yes 2>&1 || true
+              sleep 30
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            elif echo "$DESTROY_OUTPUT" | grep -q "404\|not found"; then
+              echo "✓ Stack may have already been destroyed (404 error)."
+              pulumi stack select dev 2>&1 | grep -q "404" && echo "Stack already destroyed. Exiting successfully." && exit 0
+              EXIT_CODE=0
+              break
+            elif echo "$DESTROY_OUTPUT" | grep -q "DependencyViolation"; then
+              echo "⚠ Dependency violation detected. Waiting 30 seconds and retrying..."
+              sleep 30
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            else
+              echo "⚠ Destroy failed with exit code $EXIT_CODE"
+              echo "Error output:"
+              echo "$DESTROY_OUTPUT" | tail -20
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_DESTROY_RETRIES ]; then
+                echo "Waiting 30 seconds before retry..."
+                sleep 30
+              fi
+            fi
+          done
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Destroy failed after $MAX_DESTROY_RETRIES attempts"
+            echo "Last error output:"
+            cat /tmp/destroy-output.txt | tail -30
           fi
           
           exit $EXIT_CODE
