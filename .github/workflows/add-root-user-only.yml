@@ -48,115 +48,117 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-          ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
-          echo "Root user ARN: $ROOT_USER_ARN"
-          echo "Current caller identity:"
-          aws sts get-caller-identity
           
-          # Intentar obtener el ConfigMap actual
-          echo "Attempting to get aws-auth ConfigMap..."
-          if kubectl get configmap aws-auth -n kube-system -o json > /tmp/aws-auth.json 2>/dev/null; then
-            echo "✓ Successfully retrieved aws-auth ConfigMap"
-            cat /tmp/aws-auth.json | jq '.data' || true
+          ROOT_USER_ARN="arn:aws:iam::895416262297:root"
+          echo "=========================================="
+          echo "Configuring access for: $ROOT_USER_ARN"
+          echo "=========================================="
+          echo ""
+          
+          # Verificar el estado actual
+          echo "=== Current ConfigMap state (if exists) ==="
+          kubectl get configmap aws-auth -n kube-system -o yaml 2>/dev/null || echo "ConfigMap does not exist yet"
+          echo ""
+          
+          # Obtener mapRoles existente (si existe) para preservarlo
+          echo "=== Extracting existing mapRoles ==="
+          if kubectl get configmap aws-auth -n kube-system -o json > /tmp/existing-auth.json 2>/dev/null; then
+            MAP_ROLES=$(jq -r '.data.mapRoles // ""' /tmp/existing-auth.json)
+            echo "Found existing mapRoles:"
+            echo "$MAP_ROLES"
           else
-            echo "⚠ Could not retrieve ConfigMap, creating base structure..."
-            echo '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"aws-auth","namespace":"kube-system"},"data":{}}' > /tmp/aws-auth.json
+            MAP_ROLES=""
+            echo "No existing ConfigMap found"
+          fi
+          echo ""
+          
+          # Crear el ConfigMap completo
+          echo "=== Creating new ConfigMap ==="
+          if [ -n "$MAP_ROLES" ]; then
+            # Si hay mapRoles existentes, preservarlos
+            cat > /tmp/aws-auth.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+$(echo "$MAP_ROLES" | sed 's/^/    /')
+  mapUsers: |
+    - userarn: arn:aws:iam::895416262297:root
+      username: root
+      groups:
+        - system:masters
+EOF
+          else
+            # Si no hay mapRoles, solo crear mapUsers
+            cat > /tmp/aws-auth.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapUsers: |
+    - userarn: arn:aws:iam::895416262297:root
+      username: root
+      groups:
+        - system:masters
+EOF
           fi
           
-          # Leer los valores actuales
-          MAP_ROLES=$(jq -r '.data.mapRoles // ""' /tmp/aws-auth.json)
-          MAP_USERS=$(jq -r '.data.mapUsers // ""' /tmp/aws-auth.json)
-          
-          echo ""
-          echo "Current mapUsers:"
-          echo "$MAP_USERS"
-          echo ""
-          echo "Current mapRoles:"
-          echo "$MAP_ROLES"
+          echo "ConfigMap to apply:"
+          cat /tmp/aws-auth.yaml
           echo ""
           
-          UPDATED=false
-          # Agregar el usuario root si no existe
-          if [ -z "$MAP_USERS" ] || ! echo "$MAP_USERS" | grep -q "$ROOT_USER_ARN"; then
-            echo "Adding root user to aws-auth ConfigMap..."
-            NEW_USER_ENTRY=$(printf -- "- userarn: %s\n      username: root\n      groups:\n        - system:masters" "$ROOT_USER_ARN")
-            if [ -z "$MAP_USERS" ]; then
-              MAP_USERS="$NEW_USER_ENTRY"
-            else
-              MAP_USERS="$MAP_USERS"$'\n'"$NEW_USER_ENTRY"
-            fi
-            UPDATED=true
-            echo "New mapUsers content:"
-            echo "$MAP_USERS"
+          # Aplicar el ConfigMap
+          echo "=== Applying ConfigMap ==="
+          if kubectl apply -f /tmp/aws-auth.yaml; then
+            echo "✓ ConfigMap applied successfully"
           else
-            echo "✓ Root user already exists in ConfigMap"
+            echo "✗ Failed to apply ConfigMap"
+            exit 1
           fi
-          
-          # Actualizar el ConfigMap si hubo cambios
-          if [ "$UPDATED" = true ]; then
-            echo ""
-            echo "Updating ConfigMap..."
-            
-            # Construir el ConfigMap completo preservando mapRoles
-            if [ -n "$MAP_ROLES" ]; then
-              # Si mapRoles existe, preservarlo
-              jq -n \
-                --arg mapRoles "$MAP_ROLES" \
-                --arg mapUsers "$MAP_USERS" \
-                '{
-                  "apiVersion": "v1",
-                  "kind": "ConfigMap",
-                  "metadata": {
-                    "name": "aws-auth",
-                    "namespace": "kube-system"
-                  },
-                  "data": {
-                    "mapRoles": $mapRoles,
-                    "mapUsers": $mapUsers
-                  }
-                }' > /tmp/aws-auth-updated.json
-            else
-              # Si no hay mapRoles, solo crear mapUsers
-              jq -n \
-                --arg mapUsers "$MAP_USERS" \
-                '{
-                  "apiVersion": "v1",
-                  "kind": "ConfigMap",
-                  "metadata": {
-                    "name": "aws-auth",
-                    "namespace": "kube-system"
-                  },
-                  "data": {
-                    "mapUsers": $mapUsers
-                  }
-                }' > /tmp/aws-auth-updated.json
-            fi
-            
-            echo "ConfigMap to apply:"
-            cat /tmp/aws-auth-updated.json | jq .
-            
-            # Intentar apply
-            if kubectl apply -f /tmp/aws-auth-updated.json; then
-              echo "✓ aws-auth ConfigMap updated successfully"
-            else
-              echo "⚠ Apply failed, trying patch method..."
-              MAP_USERS_JSON=$(echo "$MAP_USERS" | jq -Rs .)
-              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapUsers\":$MAP_USERS_JSON}}" || echo "⚠ Patch also failed"
-            fi
-          else
-            echo "✓ aws-auth ConfigMap already configured"
-          fi
-          
-          # Verificar que el usuario fue agregado
           echo ""
-          echo "Verifying final state..."
-          sleep 3
-          kubectl get configmap aws-auth -n kube-system -o yaml | grep -A 20 "mapUsers:" || echo "Could not verify"
           
-      - name: Verify access
-        run: |
-          echo "Verifying cluster access..."
-          kubectl get nodes || echo "⚠ Could not get nodes (may need to wait a few seconds)"
-          kubectl get namespaces || echo "⚠ Could not get namespaces"
+          # Esperar a que se propague
+          echo "=== Waiting for changes to propagate ==="
+          sleep 5
+          echo ""
+          
+          # Verificar el resultado final
+          echo "=== Final ConfigMap state ==="
+          kubectl get configmap aws-auth -n kube-system -o yaml
+          echo ""
+          
+          # Verificación final
+          echo "=== Verification ==="
+          if kubectl get configmap aws-auth -n kube-system -o yaml | grep -q "895416262297:root"; then
+            echo "✓✓✓ SUCCESS: Root user is configured in aws-auth ConfigMap!"
+          else
+            echo "✗✗✗ ERROR: Root user NOT found in ConfigMap!"
+            exit 1
+          fi
 
+      - name: Verify cluster access
+        run: |
+          echo "=========================================="
+          echo "Verifying cluster access..."
+          echo "=========================================="
+          echo ""
+          
+          echo "=== Cluster nodes ==="
+          kubectl get nodes || echo "⚠ Could not get nodes"
+          echo ""
+          
+          echo "=== Namespaces ==="
+          kubectl get namespaces || echo "⚠ Could not get namespaces"
+          echo ""
+          
+          echo "=== Pods in todo namespace ==="
+          kubectl get pods -n todo 2>/dev/null || echo "⚠ Namespace 'todo' may not exist yet"
+          echo ""
+          
+          echo "✓ Workflow completed successfully!"
+          echo "You can now run 'kubectl' commands from your local machine."
