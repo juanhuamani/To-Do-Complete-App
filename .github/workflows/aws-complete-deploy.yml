@@ -172,11 +172,26 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
           ROOT_USER_ARN="arn:aws:iam::${ACCOUNT_ID}:root"
           echo "Root user ARN: $ROOT_USER_ARN"
-          # Obtener el ConfigMap actual en JSON
-          kubectl get configmap aws-auth -n kube-system -o json > /tmp/aws-auth.json 2>/dev/null || echo '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"aws-auth","namespace":"kube-system"},"data":{}}' > /tmp/aws-auth.json
+          echo "Current caller identity:"
+          aws sts get-caller-identity
+          
+          # Intentar obtener el ConfigMap actual
+          echo "Attempting to get aws-auth ConfigMap..."
+          if kubectl get configmap aws-auth -n kube-system -o json > /tmp/aws-auth.json 2>/dev/null; then
+            echo "✓ Successfully retrieved aws-auth ConfigMap"
+          else
+            echo "⚠ Could not retrieve ConfigMap, creating base structure..."
+            echo '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"aws-auth","namespace":"kube-system"},"data":{}}' > /tmp/aws-auth.json
+          fi
+          
           # Leer los valores actuales
           MAP_ROLES=$(jq -r '.data.mapRoles // ""' /tmp/aws-auth.json)
           MAP_USERS=$(jq -r '.data.mapUsers // ""' /tmp/aws-auth.json)
+          
+          echo "Current mapUsers:"
+          echo "$MAP_USERS"
+          echo ""
+          
           UPDATED=false
           # Agregar el usuario root si no existe
           if [ -z "$MAP_USERS" ] || ! echo "$MAP_USERS" | grep -q "$ROOT_USER_ARN"; then
@@ -188,37 +203,73 @@ jobs:
               MAP_USERS="$MAP_USERS"$'\n'"$NEW_USER_ENTRY"
             fi
             UPDATED=true
+            echo "New mapUsers content:"
+            echo "$MAP_USERS"
+          else
+            echo "✓ Root user already exists in ConfigMap"
           fi
-          # Actualizar el ConfigMap si hubo cambios usando kubectl patch
+          
+          # Actualizar el ConfigMap si hubo cambios
           if [ "$UPDATED" = true ]; then
+            echo "Updating ConfigMap..."
             if [ -n "$MAP_USERS" ]; then
               echo "$MAP_USERS" > /tmp/map-users.txt
-              kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapUsers\":$(jq -Rs . /tmp/map-users.txt)}}"
+              
+              # Usar jq para escapar correctamente el JSON
+              MAP_USERS_JSON=$(jq -Rs . /tmp/map-users.txt)
+              
+              # Intentar patch
+              if kubectl patch configmap aws-auth -n kube-system --type merge -p "{\"data\":{\"mapUsers\":$MAP_USERS_JSON}}" 2>&1; then
+                echo "✓ aws-auth ConfigMap updated successfully"
+              else
+                echo "⚠ Patch failed, trying alternative method with apply..."
+                # Método alternativo: crear ConfigMap completo preservando mapRoles
+                if [ -n "$MAP_ROLES" ]; then
+                  jq -n \
+                    --arg mapRoles "$MAP_ROLES" \
+                    --arg mapUsers "$MAP_USERS" \
+                    '{
+                      "apiVersion": "v1",
+                      "kind": "ConfigMap",
+                      "metadata": {
+                        "name": "aws-auth",
+                        "namespace": "kube-system"
+                      },
+                      "data": {
+                        "mapRoles": ($mapRoles | fromjson),
+                        "mapUsers": $mapUsers
+                      }
+                    }' > /tmp/aws-auth-updated.json
+                else
+                  jq -n \
+                    --arg mapUsers "$MAP_USERS" \
+                    '{
+                      "apiVersion": "v1",
+                      "kind": "ConfigMap",
+                      "metadata": {
+                        "name": "aws-auth",
+                        "namespace": "kube-system"
+                      },
+                      "data": {
+                        "mapUsers": $mapUsers
+                      }
+                    }' > /tmp/aws-auth-updated.json
+                fi
+                kubectl apply -f /tmp/aws-auth-updated.json && echo "✓ ConfigMap applied successfully" || echo "⚠ Apply also failed"
+              fi
             fi
-            echo "aws-auth ConfigMap updated successfully"
           else
-            echo "aws-auth ConfigMap already configured"
+            echo "✓ aws-auth ConfigMap already configured"
           fi
+          
+          # Verificar que el usuario fue agregado
+          echo ""
+          echo "Verifying final state..."
+          sleep 2
+          kubectl get configmap aws-auth -n kube-system -o yaml | grep -A 10 "mapUsers:" || echo "Could not verify (may need to wait for propagation)"
       
       - name: Create namespace todo (if not exists)
         run: kubectl create namespace todo || true
-      
-      - name: Clean up stuck pods before deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Limpiando pods problemáticos antes del deployment ==="
-          # Eliminar todos los pods en estado Pending o Terminating
-          kubectl -n todo get pods -o json 2>/dev/null | jq -r '.items[] | select(.status.phase == "Pending" or .status.phase == "Failed" or (.metadata.deletionTimestamp != null)) | .metadata.name' | while read pod; do
-            if [ -n "$pod" ]; then
-              echo "Eliminando pod problemático: $pod"
-              kubectl -n todo delete pod "$pod" --force --grace-period=0 || true
-            fi
-          done || echo "No hay pods para limpiar"
-          # Esperar un poco para que los pods se eliminen
-          sleep 5
-          echo "=== Estado después de limpieza ==="
-          kubectl -n todo get pods || true
 
       - name: Create/Update ECR pull secret
         shell: bash
