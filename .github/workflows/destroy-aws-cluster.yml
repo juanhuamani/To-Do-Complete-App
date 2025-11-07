@@ -120,32 +120,118 @@ jobs:
           CLUSTER_NAME=$(pulumi stack output clusterName --cwd pulumi-aws 2>/dev/null | tr -d '"' || echo "")
           VPC_ID=""
           
-          # Método 1: Obtener VPC ID desde el cluster de EKS
-          if [ -n "$CLUSTER_NAME" ]; then
-            echo "Cluster name: $CLUSTER_NAME"
-            VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query "cluster.resourcesVpcConfig.vpcId" --output text 2>/dev/null || echo "")
-            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
-              echo "✓ VPC ID from cluster: $VPC_ID"
+          # Método 1: Intentar obtener VPC ID desde el estado de Pulumi
+          echo "Method 1: Trying to get VPC ID from Pulumi stack export..."
+          pulumi stack export --cwd pulumi-aws 2>/dev/null > /tmp/stack-export.json
+          if [ -f /tmp/stack-export.json ] && [ -s /tmp/stack-export.json ]; then
+            # Buscar el VPC ID en los recursos de awsx:ec2:Vpc
+            VPC_ID=$(jq -r '.deployment.resources[]? | select(.type | contains("awsx:ec2:Vpc")) | .outputs.id // empty' /tmp/stack-export.json 2>/dev/null | head -n1 | tr -d '"' || echo "")
+            if [ -z "$VPC_ID" ]; then
+              # Buscar en recursos relacionados con VPC (subnets, security groups, etc.)
+              VPC_ID=$(jq -r '.deployment.resources[]? | select(.type | contains("aws:ec2/vpc:Vpc") or contains("awsx:ec2:Vpc")) | .outputs.id // .outputs.vpcId // empty' /tmp/stack-export.json 2>/dev/null | head -n1 | tr -d '"' || echo "")
+            fi
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "null" ]; then
+              echo "✓ VPC ID from Pulumi state: $VPC_ID"
             fi
           fi
           
-          # Método 2: Si no encontramos VPC ID, buscar por nombre de cluster en tags de VPC
-          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
+          # Método 2: Obtener VPC ID desde el cluster de EKS (si aún existe)
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ] || [ "$VPC_ID" == "null" ]; then
             if [ -n "$CLUSTER_NAME" ]; then
-              echo "Trying to find VPC by cluster name in tags..."
-              VPC_ID=$(aws ec2 describe-vpcs \
-                --filters "Name=tag:Name,Values=*${CLUSTER_NAME}*" "Name=tag:kubernetes.io/cluster/${CLUSTER_NAME},Values=shared" \
-                --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
+              echo "Method 2: Trying to get VPC ID from EKS cluster..."
+              VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query "cluster.resourcesVpcConfig.vpcId" --output text 2>/dev/null || echo "")
               if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
-                echo "✓ VPC ID from tags: $VPC_ID"
+                echo "✓ VPC ID from cluster: $VPC_ID"
               fi
             fi
           fi
           
-          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
+          # Método 3: Buscar VPC por nombre del proyecto (todo-vpc)
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ] || [ "$VPC_ID" == "null" ]; then
+            echo "Method 3: Trying to find VPC by project name (todo-vpc)..."
+            VPC_ID=$(aws ec2 describe-vpcs \
+              --filters "Name=tag:Name,Values=*todo*vpc*" \
+              --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+              echo "✓ VPC ID from name tag: $VPC_ID"
+            fi
+          fi
+          
+          # Método 4: Buscar VPC por tags de Kubernetes (si el cluster aún existe)
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ] || [ "$VPC_ID" == "null" ]; then
+            if [ -n "$CLUSTER_NAME" ]; then
+              echo "Method 4: Trying to find VPC by Kubernetes cluster tags..."
+              VPC_ID=$(aws ec2 describe-vpcs \
+                --filters "Name=tag:kubernetes.io/cluster/${CLUSTER_NAME},Values=shared" \
+                --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
+              if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+                echo "✓ VPC ID from Kubernetes tags: $VPC_ID"
+              fi
+            fi
+          fi
+          
+          # Método 5: Buscar VPC por subnets que empiecen con "todo-vpc"
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ] || [ "$VPC_ID" == "null" ]; then
+            echo "Method 5: Trying to find VPC by subnet names..."
+            SUBNET_VPC=$(aws ec2 describe-subnets \
+              --filters "Name=tag:Name,Values=*todo-vpc*" \
+              --query "Subnets[0].VpcId" --output text 2>/dev/null || echo "")
+            if [ -n "$SUBNET_VPC" ] && [ "$SUBNET_VPC" != "None" ]; then
+              VPC_ID="$SUBNET_VPC"
+              echo "✓ VPC ID from subnet tags: $VPC_ID"
+            fi
+          fi
+          
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ] || [ "$VPC_ID" == "null" ]; then
             echo "⚠ Could not determine VPC ID. Will try to clean up resources by cluster name and region..."
+            echo "⚠ Note: Some cleanup steps may be skipped without VPC ID"
           else
-            echo "Using VPC ID: $VPC_ID"
+            echo "✓ Using VPC ID: $VPC_ID"
+          fi
+          
+          # Limpieza agresiva sin VPC ID: buscar todos los recursos relacionados con "todo"
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ] || [ "$VPC_ID" == "null" ]; then
+            echo ""
+            echo "Performing aggressive cleanup without VPC ID..."
+            
+            # Buscar y liberar todas las Elastic IPs que no estén asociadas
+            echo "Cleaning up all unassociated Elastic IPs in region..."
+            ALL_UNASSOC_EIPS=$(aws ec2 describe-addresses \
+              --filters "Name=domain,Values=vpc" \
+              --query "Addresses[?AssociationId==null].AllocationId" \
+              --output text 2>/dev/null || echo "")
+            
+            if [ -n "$ALL_UNASSOC_EIPS" ] && [ "$ALL_UNASSOC_EIPS" != "None" ]; then
+              echo "Found unassociated Elastic IPs: $ALL_UNASSOC_EIPS"
+              for EIP_ALLOC in $ALL_UNASSOC_EIPS; do
+                echo "  → Releasing: $EIP_ALLOC"
+                aws ec2 release-address --allocation-id "$EIP_ALLOC" 2>/dev/null && echo "    ✓ Released" || echo "    ⚠ Failed"
+              done
+            fi
+            
+            # Buscar Network Interfaces por nombre/tags relacionados con "todo"
+            echo "Searching for Network Interfaces related to the project..."
+            if [ -n "$CLUSTER_NAME" ]; then
+              ENI_IDS=$(aws ec2 describe-network-interfaces \
+                --filters "Name=description,Values=*${CLUSTER_NAME}*" \
+                --query "NetworkInterfaces[?Status!='in-use'].NetworkInterfaceId" \
+                --output text 2>/dev/null || echo "")
+              
+              if [ -n "$ENI_IDS" ] && [ "$ENI_IDS" != "None" ]; then
+                echo "Found Network Interfaces: $ENI_IDS"
+                for ENI_ID in $ENI_IDS; do
+                  echo "  → Deleting: $ENI_ID"
+                  # Intentar desvincular primero
+                  ATTACHMENT_ID=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].Attachment.AttachmentId" --output text 2>/dev/null || echo "")
+                  if [ -n "$ATTACHMENT_ID" ] && [ "$ATTACHMENT_ID" != "None" ] && [ "$ATTACHMENT_ID" != "null" ]; then
+                    aws ec2 detach-network-interface --attachment-id "$ATTACHMENT_ID" --force 2>/dev/null || true
+                    sleep 1
+                  fi
+                  aws ec2 delete-network-interface --network-interface-id "$ENI_ID" 2>/dev/null && echo "    ✓ Deleted" || echo "    ⚠ Failed"
+                done
+              fi
+            fi
+            sleep 5
           fi
           
           # 1. Eliminar Load Balancers de Kubernetes (ALB/NLB)
@@ -271,6 +357,96 @@ jobs:
           echo "✓ Cleanup completed. Waiting 15 seconds for AWS to process all deletions..."
           sleep 15
 
+      - name: Final cleanup before destroy (get VPC from subnets being deleted)
+        run: |
+          set +e
+          echo "Final cleanup: Getting VPC ID from subnets that Pulumi is trying to delete..."
+          
+          # Buscar subnets con nombre "todo-vpc" que probablemente sean las que Pulumi está intentando eliminar
+          SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=tag:Name,Values=*todo-vpc*" \
+            --query "Subnets[*].[SubnetId,VpcId]" \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -n "$SUBNETS" ]; then
+            echo "Found subnets: $SUBNETS"
+            # Obtener el VPC ID de la primera subnet
+            VPC_ID=$(echo "$SUBNETS" | head -n1 | awk '{print $2}' || echo "")
+            
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+              echo "✓ Found VPC ID from subnets: $VPC_ID"
+              
+              # Limpiar todas las Network Interfaces en estas subnets
+              echo "Cleaning Network Interfaces in found subnets..."
+              echo "$SUBNETS" | awk '{print $1}' | while read SUBNET_ID; do
+                if [ -n "$SUBNET_ID" ]; then
+                  ENI_IDS=$(aws ec2 describe-network-interfaces \
+                    --filters "Name=subnet-id,Values=$SUBNET_ID" \
+                    --query "NetworkInterfaces[?Status!='in-use'].NetworkInterfaceId" \
+                    --output text 2>/dev/null || echo "")
+                  
+                  if [ -n "$ENI_IDS" ] && [ "$ENI_IDS" != "None" ]; then
+                    echo "  Found ENIs in subnet $SUBNET_ID: $ENI_IDS"
+                    for ENI_ID in $ENI_IDS; do
+                      echo "    → Processing ENI: $ENI_ID"
+                      # Desvincular si está asociada
+                      ATTACHMENT_ID=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].Attachment.AttachmentId" --output text 2>/dev/null || echo "")
+                      if [ -n "$ATTACHMENT_ID" ] && [ "$ATTACHMENT_ID" != "None" ] && [ "$ATTACHMENT_ID" != "null" ]; then
+                        echo "      → Detaching: $ATTACHMENT_ID"
+                        aws ec2 detach-network-interface --attachment-id "$ATTACHMENT_ID" --force 2>/dev/null || true
+                        sleep 1
+                      fi
+                      # Desasociar Elastic IP si tiene una
+                      EIP_ALLOC=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].Association.AllocationId" --output text 2>/dev/null || echo "")
+                      if [ -n "$EIP_ALLOC" ] && [ "$EIP_ALLOC" != "None" ] && [ "$EIP_ALLOC" != "null" ]; then
+                        ASSOC_ID=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].Association.AssociationId" --output text 2>/dev/null || echo "")
+                        if [ -n "$ASSOC_ID" ] && [ "$ASSOC_ID" != "None" ] && [ "$ASSOC_ID" != "null" ]; then
+                          echo "      → Disassociating Elastic IP: $ASSOC_ID"
+                          aws ec2 disassociate-address --association-id "$ASSOC_ID" 2>/dev/null || true
+                          sleep 1
+                          echo "      → Releasing Elastic IP: $EIP_ALLOC"
+                          aws ec2 release-address --allocation-id "$EIP_ALLOC" 2>/dev/null || true
+                        fi
+                      fi
+                      # Eliminar la ENI
+                      echo "      → Deleting ENI: $ENI_ID"
+                      aws ec2 delete-network-interface --network-interface-id "$ENI_ID" 2>/dev/null && echo "        ✓ Deleted" || echo "        ⚠ Failed or in use"
+                      sleep 1
+                    done
+                  fi
+                fi
+              done
+              
+              # Limpiar todas las Elastic IPs asociadas a Network Interfaces en esta VPC
+              echo "Cleaning Elastic IPs in VPC: $VPC_ID"
+              ALL_EIPS=$(aws ec2 describe-addresses \
+                --filters "Name=domain,Values=vpc" \
+                --query "Addresses[?NetworkInterfaceId!=null]" \
+                --output json 2>/dev/null || echo "[]")
+              
+              echo "$ALL_EIPS" | jq -r '.[] | "\(.AllocationId)|\(.AssociationId)|\(.NetworkInterfaceId)"' | while IFS='|' read -r ALLOC_ID ASSOC_ID ENI_ID; do
+                if [ -n "$ENI_ID" ] && [ "$ENI_ID" != "null" ]; then
+                  ENI_VPC=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --query "NetworkInterfaces[0].VpcId" --output text 2>/dev/null || echo "")
+                  if [ "$ENI_VPC" == "$VPC_ID" ]; then
+                    echo "  → Processing Elastic IP: $ALLOC_ID"
+                    if [ -n "$ASSOC_ID" ] && [ "$ASSOC_ID" != "null" ]; then
+                      echo "    → Disassociating: $ASSOC_ID"
+                      aws ec2 disassociate-address --association-id "$ASSOC_ID" 2>/dev/null || true
+                      sleep 1
+                    fi
+                    echo "    → Releasing: $ALLOC_ID"
+                    aws ec2 release-address --allocation-id "$ALLOC_ID" 2>/dev/null || true
+                  fi
+                fi
+              done
+              
+              echo "Waiting 10 seconds for AWS to process..."
+              sleep 10
+            fi
+          else
+            echo "No subnets found with 'todo-vpc' in name"
+          fi
+
       - name: Destroy infrastructure
         working-directory: pulumi-aws
         env:
@@ -278,13 +454,29 @@ jobs:
           PULUMI_K8S_DELETE_UNREACHABLE: "true"
         run: |
           set +e
+          echo "Starting destroy operation..."
           pulumi destroy --yes --skip-preview
           EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 255 ]; then
-            # Error 404 significa que el stack no existe o ya fue eliminado
-            echo "Stack may have already been destroyed (404 error). Checking..."
-            pulumi stack select dev 2>&1 | grep -q "404" && echo "Stack already destroyed. Exiting successfully." && exit 0
+          
+          # Si falla por dependencias, intentar limpiar una vez más y reintentar
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "Destroy failed with exit code $EXIT_CODE"
+            echo "Checking if it's a dependency error..."
+            
+            if [ $EXIT_CODE -eq 255 ]; then
+              # Error 404 significa que el stack no existe o ya fue eliminado
+              echo "Stack may have already been destroyed (404 error). Checking..."
+              pulumi stack select dev 2>&1 | grep -q "404" && echo "Stack already destroyed. Exiting successfully." && exit 0
+            fi
+            
+            # Si el error es por dependencias (DependencyViolation), esperar un poco y reintentar
+            echo "Waiting 30 seconds and retrying destroy..."
+            sleep 30
+            echo "Retrying destroy..."
+            pulumi destroy --yes --skip-preview
+            EXIT_CODE=$?
           fi
+          
           exit $EXIT_CODE
 
       - name: Show destroyed resources
